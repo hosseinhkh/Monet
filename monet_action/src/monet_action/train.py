@@ -16,7 +16,6 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 import json
 import math
-import os
 import shutil
 import time
 from pathlib import Path
@@ -27,6 +26,7 @@ import torch
 from torch.utils.data import DataLoader, Sampler
 
 from .config import ExperimentConfig, config_from_dict, load_config
+from .gpu import setup_gpu
 from .libero_dataset import Collator, build_datasets
 from .logging_utils import RunMonitor, get_logger
 from .metrics import offline_metrics
@@ -269,6 +269,10 @@ def _train(cfg: ExperimentConfig, out: Path, mon: RunMonitor, device: str, token
         write_json(out / "split.json", split)
 
     policy, load_info = build_policy(cfg, device=device, normalizer=normalizer, tokenizer_path=tokenizer_path)
+    gpu = setup_gpu(device)  # GPU 0 (pinned in scripts/common.sh); optional MONET_GPU_RESERVE
+    if gpu.get("cuda"):
+        mon.update(gpu=gpu)
+        mon.event("gpu", **gpu)
     if cfg.train.init_from:
         ck = Path(cfg.train.init_from)
         if (ck / "last").exists():

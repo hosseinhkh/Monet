@@ -109,6 +109,32 @@ Useful variants:
 When the summary prints **`READY TO TRAIN`**, look at the smoke videos in `results/smoke/closed_loop/videos/`.
 The arm should move toward the bowl, and nothing should be mirrored or upside down.
 
+## 5b. GPU usage (what runs where)
+
+Everything runs on **one card, GPU 0 by default**. `scripts/common.sh` sets `CUDA_VISIBLE_DEVICES=0`,
+`MUJOCO_EGL_DEVICE_ID=0` (simulator rendering) and `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so "GPU 0" is the
+card `nvidia-smi` calls 0. Inside Python that card is `cuda:0`. Use another card with `GPU_ID=1 bash scripts/...`.
+
+| preflight step | device |
+|---|---|
+| `env` | GPU: bf16 matmul throughput, free memory, other processes on GPU 0 |
+| `data`, `weights` | CPU / disk |
+| `render` | GPU 0 (EGL) |
+| `tests_cpu` | CPU by design (tiny-model correctness suite); its simulator tests render on GPU 0 |
+| `tests_gpu`, `audit`, `memory`, `dry_run`, `smoke` | **GPU 0 with real Monet-7B** |
+
+Training, evaluation and the in-training simulator checks all run on GPU 0.
+
+**Claiming the whole card.** PyTorch normally allocates memory as needed. On a shared server, reserve
+it up front instead:
+```bash
+export MONET_GPU_RESERVE=0.95
+```
+Every training, evaluation and audit process then holds 95% of GPU 0 right after loading Monet. It shows
+in `nvidia-smi` as used by that process and is reused for activations; 3 GB stays free for CUDA kernels
+and EGL rendering. Measured memory peaks (`memory` step) are unaffected. The `env` step verifies that the
+reservation works.
+
 ## 6. Start training (in tmux, so it survives SSH disconnects)
 
 ```bash

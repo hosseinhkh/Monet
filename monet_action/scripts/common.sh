@@ -22,3 +22,12 @@ export TRANSFORMERS_VERBOSITY=error
 export MUJOCO_GL="${MUJOCO_GL:-egl}"          # osmesa on machines without a GPU
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-$MUJOCO_GL}"
 export DEVICE="${DEVICE:-cuda}"
+# GPU pinning: everything (PyTorch + MuJoCo EGL rendering) runs on ONE card, GPU_ID (default 0), numbered as
+# in nvidia-smi. Inside Python that card is cuda:0. Set CUDA_VISIBLE_DEVICES yourself to override.
+export GPU_ID="${GPU_ID:-0}"
+export CUDA_DEVICE_ORDER="${CUDA_DEVICE_ORDER:-PCI_BUS_ID}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$GPU_ID}"
+export MUJOCO_EGL_DEVICE_ID="${MUJOCO_EGL_DEVICE_ID:-${CUDA_VISIBLE_DEVICES%%,*}}"
+# MONET_GPU_RESERVE=0.95 -> training/eval/audit processes claim 95% of the card right after loading Monet
+# (useful on shared servers). 0 = allocate on demand (default).
+export MONET_GPU_RESERVE="${MONET_GPU_RESERVE:-0}"

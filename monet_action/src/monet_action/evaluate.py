@@ -283,6 +283,9 @@ def main(argv=None) -> None:
     from .train import load_policy_from_checkpoint
 
     policy, cfg, meta = load_policy_from_checkpoint(a.checkpoint, a.device, a.override, a.tokenizer_path)
+    from .gpu import setup_gpu
+
+    setup_gpu(a.device)  # GPU 0 (pinned in scripts/common.sh); optional MONET_GPU_RESERVE
     ec = _eval_cfg(cfg, a)
     default_name = f"{cfg.variant}_{cfg.name}" + (f"_{ec.intervention.replace(':', '')}" if getattr(ec, "intervention", None) else "")
     out_dir = Path(a.output_dir or Path(ec.output_dir) / default_name)

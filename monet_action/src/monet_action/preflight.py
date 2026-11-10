@@ -36,6 +36,22 @@ def _ver(pkg: str) -> str:
         return "missing"
 
 
+def _other_gpu_processes(gpu_index: str) -> str:
+    """Compute processes on the physical GPU (nvidia-smi numbering) other than this one."""
+    import subprocess
+
+    try:
+        uuid = subprocess.run(["nvidia-smi", "-i", gpu_index, "--query-gpu=uuid", "--format=csv,noheader"],
+                              capture_output=True, text=True, timeout=10).stdout.strip()
+        out = subprocess.run(["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
+                              "--format=csv,noheader"], capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        return ""
+    rows = [ln.split(", ") for ln in out.strip().splitlines() if ln.strip()]
+    mine = str(os.getpid())
+    return "; ".join(f"pid {p[1]} {p[2]} {p[3]}" for p in rows if len(p) >= 4 and p[0] == uuid and p[1] != mine)
+
+
 def _report(results: List[Result]) -> int:
     for st, name, detail in results:
         print(f"  [{st:4s}] {name:34s} {detail}")
@@ -81,6 +97,21 @@ def check_env(allow_cpu: bool = False) -> int:
             r.append(("FAIL", "bf16 matmul", repr(e)))
         free, total = torch.cuda.mem_get_info()
         r.append(("PASS" if free / total > 0.9 else "WARN", "GPU free memory", f"{free / 1024 ** 3:.0f}/{total / 1024 ** 3:.0f} GB free (other processes?)"))
+        vis = os.environ.get("CUDA_VISIBLE_DEVICES")
+        r.append(("PASS" if torch.cuda.device_count() == 1 else "WARN", "pinned to one GPU",
+                  f"CUDA_VISIBLE_DEVICES={vis} MUJOCO_EGL_DEVICE_ID={os.environ.get('MUJOCO_EGL_DEVICE_ID')} "
+                  f"CUDA_DEVICE_ORDER={os.environ.get('CUDA_DEVICE_ORDER')} -> {torch.cuda.device_count()} visible"))
+        others = _other_gpu_processes((vis or "0").split(",")[0])
+        r.append(("PASS" if not others else "WARN", "other processes on this GPU", others or "none"))
+        frac = float(os.environ.get("MONET_GPU_RESERVE", "0") or 0)
+        if frac > 0:
+            from .gpu import reserve_gpu_memory
+
+            got = reserve_gpu_memory(frac)
+            held = torch.cuda.memory_reserved(0) / 1024 ** 3
+            r.append(("PASS" if held >= 0.8 * frac * total / 1024 ** 3 else "WARN", "MONET_GPU_RESERVE works",
+                      f"fraction {frac}: this process could hold {held:.0f} GB (+{got:.0f} GB)"))
+            torch.cuda.empty_cache()
     else:
         r.append(("WARN" if allow_cpu else "FAIL", "CUDA available", "no CUDA device"))
     disk = shutil.disk_usage(ROOT).free / 1024 ** 3

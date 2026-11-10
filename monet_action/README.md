@@ -19,7 +19,7 @@ RGB (agent + wrist) + instruction + 8D state + TOOL_RESULT (previously executed 
 The code, configs, tests, monitoring and scripts for G0–G3 are complete. Everything that can run without a
 GPU was run in this repository's CPU container:
 
-* the full test suite: 151 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
+* the full test suite: 153 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
 * the whole pipeline dry run (`MODEL=tiny bash scripts/dry_run.sh`): 6 training variants, warm-start chains, in-training simulator checks, all 21 evaluation runs and the report;
 * the G0 audit (`results/audit/g0_report_tiny.*`);
 * a tiny overfit;

@@ -39,3 +39,35 @@ def test_overfit_check_on_synthetic_run(tmp_path):
     rows = [{"fm_loss": v, "gripper_acc": 0.5} for v in (1.4, 1.5, 1.6, 1.5)]
     (d / "overfit_log.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
     assert preflight.check_overfit(str(d)) == 1
+
+
+def test_gpu_reserve_arithmetic(monkeypatch):
+    """MONET_GPU_RESERVE: hold fraction*total minus what is already held, never more than free - margin."""
+    import types
+
+    import torch
+
+    from monet_action import gpu
+
+    G = gpu.GiB
+    asked = {}
+    fake = types.SimpleNamespace(is_available=lambda: True, mem_get_info=lambda i=0: (90 * G, 96 * G),
+                                 memory_reserved=lambda i=0: 20 * G)
+    monkeypatch.setattr(gpu, "torch", types.SimpleNamespace(
+        cuda=fake, uint8=torch.uint8, empty=lambda n, dtype=None, device=None: asked.setdefault("n", n)))
+    assert abs(gpu.reserve_gpu_memory(0.95, margin_gb=3) - 71.2) < 0.01  # 0.95*96 - 20
+    asked.clear()
+    assert abs(gpu.reserve_gpu_memory(1.0, margin_gb=10) - 76.0) < 0.01  # capped by free(90) - margin(10)
+    assert gpu.reserve_gpu_memory(0.0) == 0.0
+
+
+def test_common_sh_pins_one_gpu():
+    import subprocess
+
+    from conftest import ROOT
+
+    out = subprocess.run(["bash", "-c", "export VENV=${VENV:-$(dirname $(dirname $(command -v python)))}; "
+                          "unset CUDA_VISIBLE_DEVICES MUJOCO_EGL_DEVICE_ID; GPU_ID=3 source scripts/common.sh && "
+                          "echo $CUDA_VISIBLE_DEVICES $MUJOCO_EGL_DEVICE_ID $CUDA_DEVICE_ORDER"],
+                         cwd=ROOT, capture_output=True, text=True)
+    assert out.stdout.split() == ["3", "3", "PCI_BUS_ID"], out.stderr
