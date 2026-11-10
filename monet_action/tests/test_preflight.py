@@ -64,12 +64,11 @@ def test_gpu_reserve_arithmetic(monkeypatch):
 def test_common_sh_pins_one_gpu():
     import subprocess
 
-    from conftest import ROOT
+    from conftest import ROOT, common_sh_env
 
-    out = subprocess.run(["bash", "-c", "export VENV=${VENV:-$(dirname $(dirname $(command -v python)))}; "
-                          "unset CUDA_VISIBLE_DEVICES MUJOCO_EGL_DEVICE_ID; GPU_ID=3 MONET_GPU_HOLD=0 source scripts/common.sh && "
-                          "echo $CUDA_VISIBLE_DEVICES $MUJOCO_EGL_DEVICE_ID $CUDA_DEVICE_ORDER"],
-                         cwd=ROOT, capture_output=True, text=True)
+    out = subprocess.run(["bash", "-c", "unset CUDA_VISIBLE_DEVICES MUJOCO_EGL_DEVICE_ID; GPU_ID=3 MONET_GPU_HOLD=0 "
+                          "source scripts/common.sh && echo $CUDA_VISIBLE_DEVICES $MUJOCO_EGL_DEVICE_ID $CUDA_DEVICE_ORDER"],
+                         cwd=ROOT, capture_output=True, text=True, env=common_sh_env())
     assert out.stdout.split() == ["3", "3", "PCI_BUS_ID"], out.stderr
 
 

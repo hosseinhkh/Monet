@@ -13,7 +13,7 @@ import pytest
 
 from monet_action import gpu_hold
 
-from conftest import ROOT
+from conftest import ROOT, common_sh_env
 
 G = gpu_hold.GiB
 CLIENT = ("import sys; from pathlib import Path; from monet_action.gpu_hold import acquire_lease; "
@@ -189,7 +189,7 @@ def test_setup_gpu_takes_the_lease_before_touching_memory(monkeypatch):
 
 
 def _env(tmp_path, **kw):
-    return {**os.environ, "PYTHONPATH": str(ROOT / "src") + os.pathsep + os.environ.get("PYTHONPATH", ""),
+    return {**common_sh_env(), "PYTHONPATH": str(ROOT / "src") + os.pathsep + os.environ.get("PYTHONPATH", ""),
             "MONET_GPU_HOLD_DIR": str(tmp_path), "MONET_GPU_HOLD_FAKE_GB": "96", "CUDA_VISIBLE_DEVICES": "5", **kw}
 
 
@@ -228,9 +228,8 @@ def test_cli_start_hand_over_stop(tmp_path):
 
 
 def test_common_sh_starts_holder_only_when_asked(tmp_path):
-    venv = os.environ.get("VENV") or os.path.dirname(os.path.dirname(sys.executable))
     d = tmp_path / "gpu5"
-    sh = lambda extra: subprocess.run(["bash", "-c", f"export VENV={venv}; {extra} source scripts/common.sh"],  # noqa: E731
+    sh = lambda extra: subprocess.run(["bash", "-c", f"{extra} source scripts/common.sh"],  # noqa: E731
                                       env=_env(tmp_path, MONET_GPU_RESERVE="0.5"), cwd=ROOT, capture_output=True,
                                       text=True, timeout=90)
     try:
@@ -240,7 +239,7 @@ def test_common_sh_starts_holder_only_when_asked(tmp_path):
         out = sh("MONET_GPU_HOLD=1 DEVICE=cuda")
         assert out.returncode == 0, out.stderr
         assert gpu_hold.holder_pid(d) is not None and gpu_hold.read_state(d)["state"] == "holding"
-        out = subprocess.run(["bash", "scripts/gpu_hold.sh", "stop"], env=_env(tmp_path, VENV=venv, MONET_GPU_HOLD="1"),
+        out = subprocess.run(["bash", "scripts/gpu_hold.sh", "stop"], env=_env(tmp_path, MONET_GPU_HOLD="1"),
                              cwd=ROOT, capture_output=True, text=True, timeout=60)
         assert "stopped" in out.stdout, out.stdout + out.stderr
         assert gpu_hold.holder_pid(d) is None

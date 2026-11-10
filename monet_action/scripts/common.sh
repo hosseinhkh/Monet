@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # Sourced by every script. Picks the Python environment in this order:
-#   1. VENV=/path/to/venv (explicit)   2. an active conda env other than "base"   3. ~/venvs/monet_action
+#   1. VENV=/path/to/env (explicit: a python venv or a conda env prefix)   2. an active conda env other than
+#   "base"   3. ~/venvs/monet_action
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$HERE"
 if [ -n "${VENV:-}" ]; then
-  # shellcheck disable=SC1091
-  source "$VENV/bin/activate"
+  if [ -f "$VENV/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "$VENV/bin/activate"
+  elif [ -x "$VENV/bin/python" ]; then
+    export PATH="$VENV/bin:$PATH"  # conda env prefix (conda envs have no bin/activate)
+  else
+    echo "[monet_action] VENV=$VENV has no bin/python" >&2
+    exit 1
+  fi
 elif [ -n "${CONDA_PREFIX:-}" ] && [ "${CONDA_DEFAULT_ENV:-base}" != "base" ]; then
   : # use the active conda environment (e.g. `conda activate monet_action`)
 elif [ -f "$HOME/venvs/monet_action/bin/activate" ]; then

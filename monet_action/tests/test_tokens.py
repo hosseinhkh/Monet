@@ -1,6 +1,5 @@
 """Monet-7B tokenizer / special tokens / prompt layout (needs only the small tokenizer files)."""
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -39,9 +38,11 @@ def test_special_token_ids(processor):
 
 
 def test_checkpoint_config_matches_tokenizer():
-    path = os.environ.get("MONET_TOKENIZER_PATH")
-    if not path or not (Path(path) / "config.json").exists():
-        pytest.skip("set MONET_TOKENIZER_PATH to the downloaded Monet-7B tokenizer/config files")
+    from conftest import monet_local_files
+
+    path = monet_local_files()
+    if path is None:
+        pytest.skip("Monet-7B config not found: scripts/download_data.sh, or set MONET_TOKENIZER_PATH / MONET7B_PATH")
     c = json.loads((Path(path) / "config.json").read_text())
     assert (c["latent_token_id"], c["latent_start_id"], c["latent_end_id"]) == (151665, 151666, 151667)
     assert c["answer_start_pattern"] == [151644, 77091] and c["vocab_size"] == MONET_VOCAB_SIZE

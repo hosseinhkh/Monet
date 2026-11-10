@@ -12,6 +12,29 @@ os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 from monet_action.config import load_config  # noqa: E402
 
 
+def common_sh_env() -> dict:
+    """Environment in which scripts/common.sh picks the interpreter running these tests (venv or conda env)."""
+    return {**os.environ, "VENV": sys.prefix, "PATH": str(Path(sys.prefix) / "bin") + os.pathsep + os.environ.get("PATH", "")}
+
+
+def monet_local_files():
+    """Monet-7B tokenizer/config folder: MONET_TOKENIZER_PATH, MONET7B_PATH, or the local HF cache (no download)."""
+    for k in ("MONET_TOKENIZER_PATH", "MONET7B_PATH"):
+        p = os.environ.get(k)
+        if p and (Path(p) / "config.json").exists():
+            return p
+    try:
+        from huggingface_hub import snapshot_download
+
+        from monet_action.config import MonetConfig
+
+        c = MonetConfig()
+        p = snapshot_download(c.model_path, revision=c.model_revision, local_files_only=True)
+        return p if (Path(p) / "config.json").exists() else None
+    except Exception:
+        return None
+
+
 @pytest.fixture(scope="session")
 def cfg_path():
     return str(ROOT / "configs" / "tiny_cpu.yaml")
