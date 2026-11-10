@@ -16,6 +16,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+
+from monet_action.runtime_env import apply_defaults, nvidia_smi_gpus
+
+apply_defaults()  # before torch: GPU pinning (GPU_ID, default 0 / auto) and MUJOCO_GL, as scripts/common.sh
 import shutil
 import sys
 import time
@@ -84,19 +88,37 @@ def check_env(allow_cpu: bool = False) -> int:
         r.append(("PASS", "GPU", f"{p.name} sm_{p.major}{p.minor} {mem:.0f} GB, {torch.cuda.device_count()} device(s)"))
         r.append(("PASS" if mem >= 80 else "WARN", "GPU memory >= 80 GB", f"{mem:.0f} GB (D2 batch size must then be profiled)"))
         try:
-            a = torch.randn(4096, 4096, device="cuda", dtype=torch.bfloat16)
-            torch.cuda.synchronize()
-            t0 = time.time()
-            for _ in range(20):
+            a = torch.randn(8192, 8192, device="cuda", dtype=torch.bfloat16)
+            for _ in range(3):  # warm-up: cuBLAS handle + kernel selection are not throughput
                 b = a @ a
             torch.cuda.synchronize()
-            tflops = 20 * 2 * 4096 ** 3 / (time.time() - t0) / 1e12
+            n, t0 = 30, time.time()
+            for _ in range(n):
+                b = a @ a
+            torch.cuda.synchronize()
+            tflops = n * 2 * 8192 ** 3 / (time.time() - t0) / 1e12
             ok = bool(torch.isfinite(b).all())
-            r.append(("PASS" if ok else "FAIL", "bf16 matmul", f"finite={ok}, ~{tflops:.0f} TFLOP/s"))
+            del a, b
+            torch.cuda.empty_cache()
+            r.append(("FAIL" if not ok else ("PASS" if tflops >= 50 else "WARN"), "bf16 matmul",
+                      f"finite={ok}, {tflops:.0f} TFLOP/s" + ("" if tflops >= 50 else " (low: GPU shared with other jobs or throttled?)")))
         except Exception as e:
             r.append(("FAIL", "bf16 matmul", repr(e)))
         free, total = torch.cuda.mem_get_info()
-        r.append(("PASS" if free / total > 0.9 else "WARN", "GPU free memory", f"{free / 1024 ** 3:.0f}/{total / 1024 ** 3:.0f} GB free (other processes?)"))
+        free_gb = free / 1024 ** 3
+        # Monet-7B bf16 weights 16.6 GB + activations: D0/D1 need ~30 GB, D2 more (see the memory step)
+        need = float(os.environ.get("MONET_MIN_FREE_GB", "40"))
+        cards = nvidia_smi_gpus()
+        sel = os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")[0].strip()
+        if cards:
+            table = "; ".join(f"{'*' if str(i) == sel else ' '}GPU {i}: {fr:.0f}/{tot:.0f} GB free" for i, _, fr, tot in cards)
+            r.append(("PASS", "GPUs on this machine (* = selected)", table))
+        best = max(cards, key=lambda c: c[2]) if cards else None
+        hint = ""
+        if best is not None and str(best[0]) != sel and best[2] > free_gb + 5:
+            hint = f" -> GPU {best[0]} has {best[2]:.0f} GB free: run with GPU_ID={best[0]} (or GPU_ID=auto)"
+        status = "PASS" if free / total > 0.9 else ("WARN" if free_gb >= need else "FAIL")
+        r.append((status, f"selected GPU free memory (need >= {need:.0f} GB)", f"{free_gb:.0f}/{total / 1024 ** 3:.0f} GB free{hint}"))
         vis = os.environ.get("CUDA_VISIBLE_DEVICES")
         r.append(("PASS" if torch.cuda.device_count() == 1 else "WARN", "pinned to one GPU",
                   f"CUDA_VISIBLE_DEVICES={vis} MUJOCO_EGL_DEVICE_ID={os.environ.get('MUJOCO_EGL_DEVICE_ID')} "

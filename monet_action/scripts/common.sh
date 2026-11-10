@@ -25,6 +25,11 @@ export DEVICE="${DEVICE:-cuda}"
 # GPU pinning: everything (PyTorch + MuJoCo EGL rendering) runs on ONE card, GPU_ID (default 0), numbered as
 # in nvidia-smi. Inside Python that card is cuda:0. Set CUDA_VISIBLE_DEVICES yourself to override.
 export GPU_ID="${GPU_ID:-0}"
+if [ "$GPU_ID" = "auto" ]; then  # the card with the most free memory right now
+  GPU_ID=$( (nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits 2>/dev/null || echo "0, 0") \
+            | sort -t, -k2 -nr | head -n 1 | cut -d, -f1 | tr -d ' ')
+  echo "[monet_action] GPU_ID=auto -> GPU $GPU_ID" >&2
+fi
 export CUDA_DEVICE_ORDER="${CUDA_DEVICE_ORDER:-PCI_BUS_ID}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-$GPU_ID}"
 export MUJOCO_EGL_DEVICE_ID="${MUJOCO_EGL_DEVICE_ID:-${CUDA_VISIBLE_DEVICES%%,*}}"

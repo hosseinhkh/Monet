@@ -71,3 +71,38 @@ def test_common_sh_pins_one_gpu():
                           "echo $CUDA_VISIBLE_DEVICES $MUJOCO_EGL_DEVICE_ID $CUDA_DEVICE_ORDER"],
                          cwd=ROOT, capture_output=True, text=True)
     assert out.stdout.split() == ["3", "3", "PCI_BUS_ID"], out.stderr
+
+
+def _fake_nvidia_smi(tmp_path, monkeypatch, rows):
+    """Put a fake `nvidia-smi` on PATH that prints `index, name, free MiB, total MiB` rows."""
+    exe = tmp_path / "nvidia-smi"
+    exe.write_text("#!/bin/sh\ncat <<'X'\n" + "\n".join(rows) + "\nX\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
+
+
+def test_gpu_auto_picks_card_with_most_free_memory(tmp_path, monkeypatch):
+    from monet_action import runtime_env
+
+    _fake_nvidia_smi(tmp_path, monkeypatch, ["0, RTX PRO 6000, 2048, 97887", "1, RTX PRO 6000, 96000, 97887"])
+    gpus = runtime_env.nvidia_smi_gpus()
+    assert [g[0] for g in gpus] == [0, 1] and round(gpus[1][2]) == 94
+    assert runtime_env.pick_gpu("auto") == "1"
+    assert runtime_env.pick_gpu("0") == "0" and runtime_env.pick_gpu(None) == "0"
+
+
+def test_apply_defaults_pins_gpu_and_respects_existing(monkeypatch, tmp_path):
+    from monet_action import runtime_env
+
+    for k in ("CUDA_VISIBLE_DEVICES", "MUJOCO_EGL_DEVICE_ID", "CUDA_DEVICE_ORDER", "MUJOCO_GL", "PYOPENGL_PLATFORM"):
+        monkeypatch.delenv(k, raising=False)
+    _fake_nvidia_smi(tmp_path, monkeypatch, ["0, A, 1000, 97887", "1, B, 90000, 97887"])
+    monkeypatch.setenv("GPU_ID", "auto")
+    runtime_env.apply_defaults()
+    env = __import__("os").environ
+    assert (env["CUDA_VISIBLE_DEVICES"], env["MUJOCO_EGL_DEVICE_ID"], env["CUDA_DEVICE_ORDER"]) == ("1", "1", "PCI_BUS_ID")
+    assert env["MUJOCO_GL"] == "egl"  # an NVIDIA driver is present
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
+    monkeypatch.delenv("MUJOCO_EGL_DEVICE_ID")
+    runtime_env.apply_defaults()
+    assert env["CUDA_VISIBLE_DEVICES"] == "3" and env["MUJOCO_EGL_DEVICE_ID"] == "3"  # explicit choice wins

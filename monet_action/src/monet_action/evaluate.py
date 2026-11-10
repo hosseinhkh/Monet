@@ -19,10 +19,10 @@ scoring. Results are paused-simulator task success, not evidence of real-time fe
 from __future__ import annotations
 
 import argparse
-import os
 
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+from monet_action.runtime_env import apply_defaults  # noqa: E402  (before torch: GPU pinning, MUJOCO_GL)
+
+apply_defaults()
 import json
 import time
 from pathlib import Path

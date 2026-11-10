@@ -39,6 +39,10 @@ ignore = [
   "B008",  # dataclass field(default_factory=...) patterns
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# CLI entry points call runtime_env.apply_defaults() before importing torch (GPU pinning must precede CUDA init)
+"src/monet_action/{train,evaluate,audit,preflight}.py" = ["E402"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["monet_action"]
 known-local-folder = ["conftest", "test_tool_loop"]

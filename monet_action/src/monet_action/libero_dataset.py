@@ -58,8 +58,9 @@ class LeRobotLiberoFrames:
         self.info = json.loads((self.root / "meta" / "info.json").read_text())
         assert self.info["features"]["observation.state"]["shape"] == [8], "expected 8D state"
         assert self.info["features"]["action"]["shape"] == [7], "expected 7D action"
-        tasks = pq.read_table(self.root / "meta" / "tasks.parquet").to_pandas()
-        self.task_text = {int(r.task_index): str(t) for t, r in tasks.iterrows()}
+        # pyarrow only (no pandas): rows are {"task_index": int, "task": str}
+        tasks = pq.read_table(self.root / "meta" / "tasks.parquet").to_pylist()
+        self.task_text = {int(r["task_index"]): str(r["task"]) for r in tasks}
         self.camera_keys = list(camera_keys)
 
         files = sorted(glob.glob(str(self.root / "data" / "chunk-*" / "file-*.parquet")))
@@ -117,8 +118,8 @@ class LeRobotLiberoFrames:
     def _episode_lengths_from_meta(self) -> Dict[int, int]:
         out = {}
         for f in glob.glob(str(self.root / "meta" / "episodes" / "**" / "*.parquet"), recursive=True):
-            t = pq.read_table(f, columns=["episode_index", "length"]).to_pandas()
-            out.update({int(a): int(b) for a, b in zip(t.episode_index, t.length)})
+            t = pq.read_table(f, columns=["episode_index", "length"]).to_pydict()
+            out.update({int(a): int(b) for a, b in zip(t["episode_index"], t["length"])})
         return out
 
     def image(self, key: str, row: int) -> np.ndarray:

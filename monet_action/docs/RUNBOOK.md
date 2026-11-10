@@ -120,7 +120,20 @@ The arm should move toward the bowl, and nothing should be mirrored or upside do
 
 Everything runs on **one card, GPU 0 by default**. `scripts/common.sh` sets `CUDA_VISIBLE_DEVICES=0`,
 `MUJOCO_EGL_DEVICE_ID=0` (simulator rendering) and `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so "GPU 0" is the
-card `nvidia-smi` calls 0. Inside Python that card is `cuda:0`. Use another card with `GPU_ID=1 bash scripts/...`.
+card `nvidia-smi` calls 0. Inside Python that card is `cuda:0`. Direct `python -m monet_action.<tool>` commands
+apply the same defaults. Choose another card with `GPU_ID=1`, or let the code pick the card with the most free memory
+right now with `GPU_ID=auto`:
+```bash
+export GPU_ID=auto
+```
+
+The `env` check prints every GPU with its free memory (`*` marks the selected one) and lists other processes on the
+selected card. It **fails** when the selected card has less than 40 GB free (`MONET_MIN_FREE_GB`), and then suggests a
+better `GPU_ID`. Monet-7B needs 16.6 GB for its weights plus activations, and the memory step measures the real
+peak. On a shared machine, check before long runs:
+```bash
+nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv && nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv
+```
 
 | preflight step | device |
 |---|---|

@@ -10,10 +10,10 @@ gradient_audit.json, train_log.jsonl, val_log.jsonl, memory_profile.json, ckpt_X
 from __future__ import annotations
 
 import argparse
-import os
 
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+from monet_action.runtime_env import apply_defaults  # noqa: E402  (before torch: GPU pinning, MUJOCO_GL)
+
+apply_defaults()
 import json
 import math
 import shutil
