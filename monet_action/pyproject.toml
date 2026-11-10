@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monet_action"
+version = "0.1.0"
+description = "Monet-Action v2 Phase 1: Monet-7B self-fed latent reasoning + compact flow-matching DiT action tool for LIBERO"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []  # pinned in environment/*.txt; see README
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "sim: requires a working LIBERO/robosuite/MuJoCo install",
+  "tokenizer: requires the Monet-7B tokenizer/processor files (small, no weights)",
+  "gpu: requires a CUDA GPU and the real Monet-7B checkpoint",
+  "slow: slower CPU tests",
+]

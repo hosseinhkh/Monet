@@ -1,0 +1,14 @@
+{
+  "monet_frozen": 19571680,
+  "monet_lora": 0,
+  "state_projector": 17793,
+  "conditioner": 10880,
+  "action_head": 175559,
+  "learned_queries": 0,
+  "trainable_total": 204232,
+  "monet_load_info": {
+    "tiny_random": true,
+    "missing_keys": [],
+    "unexpected_keys": []
+  }
+}

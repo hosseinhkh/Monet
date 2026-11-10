@@ -1,0 +1,65 @@
+# Shared defaults for all Phase-1 variants (D0-D5). Variant files override only what differs.
+name: base
+variant: base
+monet:
+  model_path: NOVAglow646/Monet-7B
+  model_revision: 39c1e320a3e15c357bff911fda263923edbdda37
+  dtype: bfloat16
+  attn_implementation: sdpa
+  num_latents: 10
+  latent_convention: sft        # authors' differentiable HF latent_mode convention
+  recurrence_impl: cached
+  feedback_grad: bptt           # gradients flow through all K self-fed steps
+  latent_layer: -1              # final post-norm hidden == the vector Monet feeds back
+  vl_layer: -1
+  reasoning_mode: self_fed
+  freeze_vision: true
+  lora_enabled: false
+prompt:
+  num_state_tokens: 2
+  image_size: 224               # 2 views x 64 visual tokens
+  camera_keys: [image, wrist_image]
+state:
+  inject_into_monet: true       # state visible BEFORE latent reasoning
+  state_to_action_head: true    # and separately to the DiT state encoder
+conditioner:
+  feature_source: vl_plus_latents
+  cond_dim: 512
+  vl_max_tokens: 512
+action_head:
+  type: dit
+  action_dim: 7
+  action_horizon: 8
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  dropout: 0.1
+  num_inference_steps: 4
+data:
+  root: data/libero_spatial_image
+  val_fraction: 0.1
+  split_seed: 0
+  action_norm: q99
+  state_norm: meanstd
+  num_workers: 8
+train:
+  seed: 0
+  max_steps: 20000
+  batch_size: 8
+  grad_accum: 2                 # effective batch 16 windows
+  lr_head: 1.0e-4
+  lr_state: 1.0e-4
+  lr_lora: 5.0e-5
+  warmup_steps: 500
+  val_every: 1000
+  val_batches: 50
+  save_every: 2000
+  mixed_precision: bf16
+eval:
+  suite: libero_spatial
+  seeds: [0, 1, 2]
+  episodes_per_task: 10
+  max_steps: 220
+  execution_prefix: 1
+  num_parallel_envs: 10
+  output_dir: results/eval

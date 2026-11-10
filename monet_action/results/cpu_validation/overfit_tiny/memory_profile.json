@@ -1,0 +1,5 @@
+{
+  "peak_gb_after_3_steps": NaN,
+  "micro_batch": 8,
+  "grad_accum": 1
+}

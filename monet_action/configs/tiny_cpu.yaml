@@ -1,0 +1,27 @@
+# CPU validation config: Monet's real modified Qwen2.5-VL code with a tiny random model.
+# Never used for any reported number.
+_base_: smoke.yaml
+name: tiny_cpu
+variant: tiny
+monet:
+  model_path: tiny-random
+  dtype: float32
+  tiny_hidden_size: 64
+  tiny_num_layers: 2
+prompt:
+  image_size: 112
+state:
+  hidden_dim: 128
+conditioner:
+  cond_dim: 64
+action_head:
+  hidden_size: 64
+  num_layers: 2
+  num_heads: 4
+train:
+  output_dir: runs/tiny_cpu
+  mixed_precision: "no"
+  batch_size: 8
+eval:
+  num_parallel_envs: 2
+  camera_size: 128

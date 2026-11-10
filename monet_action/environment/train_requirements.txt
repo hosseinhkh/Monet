@@ -1,0 +1,17 @@
+# Model / training stack (torch is installed separately from the CUDA 12.8 index, see setup_env.sh).
+# transformers is pinned to the version required by Monet's customised modeling file.
+transformers==4.54.0
+tokenizers==0.21.4
+peft==0.21.2
+accelerate==1.15.0
+safetensors==0.8.0
+huggingface-hub==0.36.2
+numpy==2.2.6
+pyarrow==26.0.1
+pillow==13.0.0
+pyyaml==6.0.3
+einops==0.8.2
+h5py==3.16.0
+pytest==9.2.0
+imageio==2.38.1
+imageio-ffmpeg==0.8.1

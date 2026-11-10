@@ -1,0 +1,21 @@
+_base_: base.yaml
+name: d2_lora
+variant: D2
+description: >-
+  Monet + LoRA (q/k/v/o of decoder layers 20-27, r=16), K=10, joint flow-matching behaviour cloning.
+  Stage A = the first 10k steps of D1 (frozen Monet; head/conditioner/state projector).
+  Stage B = 10k joint steps from that checkpoint, so the total of 20k head updates matches D0/D1.
+monet:
+  num_latents: 10
+  lora_enabled: true
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  lora_layers: [20, 21, 22, 23, 24, 25, 26, 27]
+  lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+train:
+  output_dir: runs/d2_lora
+  init_from: runs/d1_k10/ckpt_0010000   # D1 stage-A weights at step 10k (kept by train.keep_every)
+  max_steps: 10000
+  warmup_steps: 200
+  lr_lora: 5.0e-5

@@ -1,0 +1,9 @@
+{"step": 1, "fm_loss": 1.518123209476471, "action_mse": 1.609971672296524, "action_mse_first": 1.7205831408500671, "gripper_acc": 0.48828125, "val_batches": 4}
+{"step": 50, "fm_loss": 0.8492241948843002, "action_mse": 0.8226338773965836, "action_mse_first": 0.865125983953476, "gripper_acc": 0.80078125, "val_batches": 4}
+{"step": 100, "fm_loss": 0.44596169888973236, "action_mse": 0.29297351092100143, "action_mse_first": 0.27454162389039993, "gripper_acc": 0.9921875, "val_batches": 4}
+{"step": 150, "fm_loss": 0.26081282645463943, "action_mse": 0.1116448063403368, "action_mse_first": 0.12228163704276085, "gripper_acc": 1.0, "val_batches": 4}
+{"step": 200, "fm_loss": 0.20452386885881424, "action_mse": 0.07140405289828777, "action_mse_first": 0.08627729397267103, "gripper_acc": 1.0, "val_batches": 4}
+{"step": 250, "fm_loss": 0.17979681864380836, "action_mse": 0.0565312160179019, "action_mse_first": 0.08040600270032883, "gripper_acc": 1.0, "val_batches": 4}
+{"step": 300, "fm_loss": 0.171035660430789, "action_mse": 0.04878547973930836, "action_mse_first": 0.07279451005160809, "gripper_acc": 1.0, "val_batches": 4}
+{"step": 350, "fm_loss": 0.1611222457140684, "action_mse": 0.04604407865554094, "action_mse_first": 0.06848457921296358, "gripper_acc": 1.0, "val_batches": 4}
+{"step": 400, "fm_loss": 0.15940972976386547, "action_mse": 0.043115283362567425, "action_mse_first": 0.06841769255697727, "gripper_acc": 1.0, "val_batches": 4}

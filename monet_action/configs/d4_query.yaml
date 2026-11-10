@@ -1,0 +1,10 @@
+_base_: base.yaml
+name: d4_query
+variant: D4
+description: Matched-compute control. K=10 slots receive trainable query embeddings (no hidden-state self-feedback); same prompt, slots, token passes and head. Frozen Monet (compare with D1).
+monet:
+  num_latents: 10
+  reasoning_mode: learned_query
+  learned_query_parallel: true
+train:
+  output_dir: runs/d4_query

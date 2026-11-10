@@ -1,0 +1,111 @@
+{
+  "n_episodes": 2,
+  "success_rate": 0.0,
+  "success_ci95": [
+    0.0,
+    0.6576280471103807
+  ],
+  "per_task": {
+    "6": {
+      "successes": 0,
+      "trials": 2,
+      "rate": 0.0,
+      "ci95": [
+        0.0,
+        0.6576280471103807
+      ]
+    }
+  },
+  "per_seed_rate": {
+    "0": 0.0
+  },
+  "seed_rate_std": 0.0,
+  "latency_ms_per_call": {
+    "total": {
+      "p50": 36.34394850018907,
+      "p95": 51.583250400108206,
+      "mean": 36.16005008321584,
+      "n": 24
+    },
+    "preprocess": {
+      "p50": 3.2247059998553596,
+      "p95": 4.51652634997117,
+      "mean": 3.3169792499923765,
+      "n": 24
+    },
+    "monet": {
+      "p50": 26.469064000139042,
+      "p95": 42.82853379988862,
+      "mean": 27.45538941655923,
+      "n": 24
+    },
+    "conditioner": {
+      "p50": 0.36367300003803393,
+      "p95": 1.687315849949297,
+      "mean": 0.47366491666404426,
+      "n": 24
+    },
+    "action_head": {
+      "p50": 4.988683999954446,
+      "p95": 6.817113150009389,
+      "mean": 4.914016500000192,
+      "n": 24
+    }
+  },
+  "latency_ms_per_sample_amortised": {
+    "total": {
+      "p50": 18.171974250094536,
+      "p95": 25.791625200054103,
+      "mean": 18.08002504160792,
+      "n": 24
+    },
+    "preprocess": {
+      "p50": 1.6123529999276798,
+      "p95": 2.258263174985585,
+      "mean": 1.6584896249961882,
+      "n": 24
+    },
+    "monet": {
+      "p50": 13.234532000069521,
+      "p95": 21.41426689994431,
+      "mean": 13.727694708279614,
+      "n": 24
+    },
+    "conditioner": {
+      "p50": 0.18183650001901697,
+      "p95": 0.8436579249746485,
+      "mean": 0.23683245833202213,
+      "n": 24
+    },
+    "action_head": {
+      "p50": 2.494341999977223,
+      "p95": 3.4085565750046944,
+      "mean": 2.457008250000096,
+      "n": 24
+    }
+  },
+  "action_calls_per_episode": 12.0,
+  "env_steps_per_episode": 24.0,
+  "sim_wall_s_per_episode": 10.659461216500176,
+  "gpu_seconds_per_episode": 0.21696030049929504,
+  "gpu_seconds_total": 0.4339206009985901,
+  "gpu_seconds_per_success": Infinity,
+  "num_inference_steps": 4,
+  "execution_prefix": 2,
+  "intervention": null,
+  "gpu_peak_mem_gb": NaN,
+  "task_names": {
+    "0": "pick_up_the_black_bowl_between_the_plate_and_the_ramekin_and_place_it_on_the_plate",
+    "1": "pick_up_the_black_bowl_next_to_the_ramekin_and_place_it_on_the_plate",
+    "2": "pick_up_the_black_bowl_from_table_center_and_place_it_on_the_plate",
+    "3": "pick_up_the_black_bowl_on_the_cookie_box_and_place_it_on_the_plate",
+    "4": "pick_up_the_black_bowl_in_the_top_drawer_of_the_wooden_cabinet_and_place_it_on_the_plate",
+    "5": "pick_up_the_black_bowl_on_the_ramekin_and_place_it_on_the_plate",
+    "6": "pick_up_the_black_bowl_next_to_the_cookie_box_and_place_it_on_the_plate",
+    "7": "pick_up_the_black_bowl_on_the_stove_and_place_it_on_the_plate",
+    "8": "pick_up_the_black_bowl_next_to_the_plate_and_place_it_on_the_plate",
+    "9": "pick_up_the_black_bowl_on_the_wooden_cabinet_and_place_it_on_the_plate"
+  },
+  "tag": "tiny_cpu_G1",
+  "note": "paused-simulator task success; not a real-time or physical-safety claim"
+}

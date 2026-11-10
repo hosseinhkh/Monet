@@ -1,0 +1,6 @@
+data
+runs/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+results/eval/**/videos/

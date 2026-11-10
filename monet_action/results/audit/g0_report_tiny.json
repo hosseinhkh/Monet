@@ -1,0 +1,367 @@
+{
+  "generated": "2026-11-10 00:15:43",
+  "environment": {
+    "python": "3.11.18",
+    "platform": "Linux-6.18.44-fc-v338-x86_64-with-glibc2.39",
+    "torch": "2.7.1+cpu",
+    "torch_cuda": null,
+    "cuda_available": false,
+    "gpus": [],
+    "nvidia_driver": "n/a",
+    "repo_commit": "08939998d3d643a73a316e349faa34f420429153",
+    "repo_dirty": true,
+    "transformers": "4.54.0",
+    "peft": "0.21.2",
+    "accelerate": "1.15.0",
+    "safetensors": "0.8.0",
+    "numpy": "2.2.6",
+    "mujoco": "3.3.2",
+    "robosuite": "1.4.1",
+    "bddl": "1.0.1",
+    "pyarrow": "26.0.1",
+    "huggingface_hub": "0.36.2",
+    "libero": "0.1.0"
+  },
+  "pinned_sources": {
+    "Monet (code, this repo's upstream)": [
+      "https://github.com/NOVAglow646/Monet",
+      "08939998d3d643a73a316e349faa34f420429153"
+    ],
+    "Monet-7B checkpoint": [
+      "https://huggingface.co/NOVAglow646/Monet-7B",
+      "39c1e320a3e15c357bff911fda263923edbdda37"
+    ],
+    "Isaac-GR00T (design reference only)": [
+      "https://github.com/NVIDIA/Isaac-GR00T",
+      "7aa0bca50f1097f8b17f5c274c98264b72a1419f"
+    ],
+    "LIBERO": [
+      "https://github.com/Lifelong-Robot-Learning/LIBERO",
+      "8f1084e3132a39270c3a13ebe37270a43ece2a01"
+    ],
+    "lerobot/libero_spatial_image dataset": [
+      "https://huggingface.co/datasets/lerobot/libero_spatial_image",
+      "d86c0b94922572b3b657e1d1a3d01f0952ddeb46"
+    ]
+  },
+  "data": {
+    "frames_loaded": 822,
+    "episodes": 7,
+    "train_episodes": 5,
+    "val_episodes": 2,
+    "train_val_disjoint": true,
+    "sample": {
+      "images": [
+        [
+          256,
+          256,
+          3
+        ],
+        [
+          256,
+          256,
+          3
+        ]
+      ],
+      "image_dtype": "uint8",
+      "state": [
+        8
+      ],
+      "actions": [
+        8,
+        7
+      ],
+      "loss_mask_last_window": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "instruction": "pick up the black bowl on the stove and place it on the plate"
+    },
+    "gripper_values": [
+      -1.0,
+      1.0
+    ],
+    "gripper_close_cmd_dq_finger": -0.00048810619045980275,
+    "gripper_open_cmd_dq_finger": 0.0003836471005342901,
+    "translation_corr_action_vs_eef_delta": [
+      0.9426433944121461,
+      0.9771421828705458,
+      0.9430678626278652
+    ],
+    "translation_mm_per_unit_action": [
+      10.750804888429357,
+      12.634471716671754,
+      10.95214283499675
+    ],
+    "state_axis_angle_norm_range": [
+      2.98013973236084,
+      3.3919103145599365
+    ],
+    "action_q01": [
+      -0.6434999918937683,
+      -0.4405714404582977,
+      -0.9375,
+      -0.09042857050895692,
+      -0.23408571183681487,
+      -0.19658571779727935,
+      -1.0
+    ],
+    "action_q99": [
+      0.9375,
+      0.8491071462631226,
+      0.8751428771018983,
+      0.10954285562038422,
+      0.1534714323282242,
+      0.06964285671710968,
+      1.0
+    ],
+    "normalisation_roundtrip_max_err_inside_q_range": 5.960464477539063e-08,
+    "normalised_gripper_values": [
+      -1.0,
+      1.0
+    ]
+  },
+  "monet": {
+    "model_path": "tiny-random",
+    "revision": "39c1e320a3e15c357bff911fda263923edbdda37",
+    "load_s": 1.8895726203918457,
+    "load_info": {
+      "tiny_random": true,
+      "missing_keys": [],
+      "unexpected_keys": []
+    },
+    "hidden_size": 64,
+    "num_layers": 2,
+    "special_ids": {
+      "latent_token_id": 151665,
+      "latent_start_id": 151666,
+      "latent_end_id": 151667,
+      "answer_start_pattern": [
+        151644,
+        77091
+      ]
+    },
+    "conventions": {
+      "sft": {
+        "input_len": 112,
+        "slot_start": 102,
+        "latents_shape": [
+          2,
+          10,
+          64
+        ],
+        "vl_shape": [
+          2,
+          102,
+          64
+        ],
+        "latents_finite": true,
+        "latent_norm_mean": 7.999996185302734,
+        "latent_norm_per_step": [
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999995708465576,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734
+        ],
+        "self_feed_max_abs_err": 0.0,
+        "cached_vs_recompute_max_abs_err": 2.384185791015625e-07,
+        "cos_consecutive_latents": [
+          0.9999771118164062,
+          0.9999775886535645,
+          0.9999775886535645,
+          0.9999777674674988,
+          0.9999777674674988,
+          0.999977707862854,
+          0.9999775290489197,
+          0.9999774098396301,
+          0.9999769926071167
+        ],
+        "timings_ms": {
+          "cached": {
+            "embed": 10.927929999979824,
+            "reason": 47.64378000027136,
+            "wall_ms": 58.65931510925293
+          },
+          "recompute": {
+            "embed": 4.831432000173663,
+            "reason": 50.293942999815044,
+            "wall_ms": 55.17911911010742
+          }
+        },
+        "parity": [
+          {
+            "vs": "authors Qwen2_5_VLModel.forward(latent_mode=True)",
+            "fed_max_abs_err": 4.76837158203125e-07,
+            "slot_out_max_abs_err": 4.76837158203125e-07,
+            "rel_err": 1.5703301414760062e-07
+          },
+          {
+            "vs": "authors Qwen2_5_VLModel.forward(latent_mode=True)",
+            "fed_max_abs_err": 7.152557373046875e-07,
+            "slot_out_max_abs_err": 7.152557373046875e-07,
+            "rel_err": 1.5232240002660546e-07
+          }
+        ],
+        "k0_latents_shape": [
+          2,
+          0,
+          64
+        ],
+        "k0_vs_k10_vl_max_abs_err_on_shared_prefix": 0.0,
+        "cos_last_prompt_hidden_vs_latent_k": [
+          0.9999766945838928,
+          0.9999079704284668,
+          0.9997944831848145,
+          0.9996371865272522,
+          0.9994367957115173,
+          0.9991931915283203,
+          0.9989063143730164,
+          0.9985755681991577,
+          0.9982005953788757,
+          0.9977805614471436
+        ],
+        "self_fed_vs_repeated_soft_prompt_rel_diff": 0.03562724217772484,
+        "state_perturbation_latent_rel_change": 0.016158433631062508
+      },
+      "vllm": {
+        "input_len": 111,
+        "slot_start": 101,
+        "latents_shape": [
+          2,
+          10,
+          64
+        ],
+        "vl_shape": [
+          2,
+          101,
+          64
+        ],
+        "latents_finite": true,
+        "latent_norm_mean": 7.999997138977051,
+        "latent_norm_per_step": [
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999995708465576,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734,
+          7.999996185302734
+        ],
+        "self_feed_max_abs_err": 0.0,
+        "cached_vs_recompute_max_abs_err": 4.76837158203125e-07,
+        "cos_consecutive_latents": [
+          0.9999763369560242,
+          0.9999760389328003,
+          0.9999756217002869,
+          0.9999753832817078,
+          0.9999750852584839,
+          0.9999746084213257,
+          0.9999741315841675,
+          0.9999735951423645,
+          0.9999729990959167
+        ],
+        "timings_ms": {
+          "cached": {
+            "embed": 5.5329369997707545,
+            "reason": 48.39969000022393,
+            "wall_ms": 53.99727821350098
+          },
+          "recompute": {
+            "embed": 4.333708999638475,
+            "reason": 51.53240200024811,
+            "wall_ms": 55.91607093811035
+          }
+        },
+        "parity": [
+          {
+            "vs": "vLLM GPUModelRunner ABS-VIS state machine (emulated)",
+            "fed_max_abs_err": 4.76837158203125e-07,
+            "slot_out_max_abs_err": 4.76837158203125e-07,
+            "rel_err": 1.599566843424327e-07
+          },
+          {
+            "vs": "vLLM GPUModelRunner ABS-VIS state machine (emulated)",
+            "fed_max_abs_err": 4.76837158203125e-07,
+            "slot_out_max_abs_err": 4.76837158203125e-07,
+            "rel_err": 1.2856924058723962e-07
+          }
+        ],
+        "k0_latents_shape": [
+          2,
+          0,
+          64
+        ],
+        "k0_vs_k10_vl_max_abs_err_on_shared_prefix": null,
+        "cos_last_prompt_hidden_vs_latent_k": [
+          0.2567850649356842,
+          0.25864237546920776,
+          0.2605181038379669,
+          0.26240915060043335,
+          0.26431185007095337,
+          0.2662247121334076,
+          0.2681483328342438,
+          0.2700842618942261,
+          0.2720326781272888,
+          0.27399107813835144
+        ],
+        "self_fed_vs_repeated_soft_prompt_rel_diff": 0.037148457020521164,
+        "state_perturbation_latent_rel_change": 0.01677756942808628
+      },
+      "sft_vs_vllm_convention_cos_per_step": [
+        0.256984144449234,
+        0.2590559720993042,
+        0.2611638307571411,
+        0.26330265402793884,
+        0.26546475291252136,
+        0.26764601469039917,
+        0.2698482573032379,
+        0.27207669615745544,
+        0.27433326840400696,
+        0.27661359310150146
+      ]
+    }
+  },
+  "sim": {
+    "task_id": 6,
+    "instruction": "pick up the black bowl next to the cookie box and place it on the plate",
+    "reset_ms": 4845.006704330444,
+    "step_ms": 233.10213088989258,
+    "image_corr_with_dataset": {
+      "policy_view_rot180": 0.92244868396537,
+      "raw_unflipped": -0.25962888807768814
+    },
+    "state_after_reset": [
+      -0.20602849125862122,
+      -0.008319331333041191,
+      1.180099606513977,
+      3.1401772499084473,
+      0.0021393282804638147,
+      -0.09067615866661072,
+      0.03872188553214073,
+      -0.03872367739677429
+    ],
+    "eef_displacement_mm_after_5x_plus_x": [
+      44.09556198120117,
+      0.13432279229164124,
+      -9.467244148254395
+    ],
+    "num_init_states": 50,
+    "max_steps": 220,
+    "observation_refreshed": true
+  }
+}

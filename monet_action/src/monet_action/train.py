@@ -1,0 +1,311 @@
+"""Behaviour-cloning training for D0 / D1 / D2 / D4 / D5 with deterministic resume.
+
+    python -m monet_action.train --config configs/d1_k10.yaml [--override train.max_steps=100 ...]
+
+Re-running the same command resumes from ``<output_dir>/last`` (model, optimiser, RNG,
+data-sampler position), so an interrupted run continues exactly where it stopped.
+Artifacts in ``output_dir``: config.json, normalizer.json, split.json, param_report.json,
+gradient_audit.json, train_log.jsonl, val_log.jsonl, memory_profile.json, ckpt_XXXXXXX/.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+import json
+import math
+import os
+import shutil
+import time
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional
+
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, Sampler
+
+from .config import ExperimentConfig, config_from_dict, load_config
+from .libero_dataset import Collator, build_datasets
+from .metrics import offline_metrics
+from .normalization import ActionStateNormalizer
+from .policy import MonetActionPolicy, build_policy
+from .profiling import peak_memory_gb, reset_peak_memory
+from .utils import append_jsonl, environment_report, rng_state, seed_everything, set_rng_state, write_json
+
+
+# --------------------------------------------------------------------------- sampler
+class ResumableSampler(Sampler[int]):
+    """Infinite epoch-seeded permutations; ``start`` skips already-consumed samples."""
+
+    def __init__(self, n: int, seed: int, start: int = 0):
+        self.n, self.seed, self.start = n, seed, start
+
+    def __iter__(self) -> Iterator[int]:
+        epoch, offset = divmod(self.start, self.n)
+        while True:
+            g = torch.Generator().manual_seed(self.seed * 100003 + epoch)
+            perm = torch.randperm(self.n, generator=g).tolist()
+            for i in perm[offset:]:
+                yield i
+            epoch, offset = epoch + 1, 0
+
+    def __len__(self) -> int:  # pragma: no cover
+        return 2 ** 62
+
+
+def lr_lambda(step: int, cfg) -> float:
+    if step < cfg.warmup_steps:
+        return (step + 1) / max(1, cfg.warmup_steps)
+    prog = (step - cfg.warmup_steps) / max(1, cfg.max_steps - cfg.warmup_steps)
+    return cfg.min_lr_ratio + (1 - cfg.min_lr_ratio) * 0.5 * (1 + math.cos(math.pi * min(1.0, prog)))
+
+
+def param_groups(policy: MonetActionPolicy, tcfg) -> List[Dict]:
+    groups = {"lora": [], "state": [], "head": [], "head_nodecay": []}
+    for n, p in policy.named_parameters():
+        if not p.requires_grad:
+            continue
+        if "lora_" in n:
+            groups["lora"].append(p)
+        elif n.startswith("state_projector"):
+            groups["state"].append(p)
+        elif p.ndim < 2 or "embedding" in n or "null_token" in n or "token_pos" in n:
+            groups["head_nodecay"].append(p)
+        else:
+            groups["head"].append(p)
+    out = []
+    if groups["lora"]:
+        out.append({"name": "lora", "params": groups["lora"], "lr": tcfg.lr_lora, "weight_decay": 0.0})
+    if groups["state"]:
+        out.append({"name": "state", "params": groups["state"], "lr": tcfg.lr_state, "weight_decay": tcfg.weight_decay})
+    out.append({"name": "head", "params": groups["head"], "lr": tcfg.lr_head, "weight_decay": tcfg.weight_decay})
+    out.append({"name": "head_nodecay", "params": groups["head_nodecay"], "lr": tcfg.lr_head, "weight_decay": 0.0})
+    return out
+
+
+GRAD_GROUPS = {
+    "action_head": lambda n: n.startswith("action_head"),
+    "conditioner": lambda n: n.startswith("conditioner"),
+    "conditioner_latent_proj": lambda n: n.startswith("conditioner.lat_proj"),
+    "state_projector": lambda n: n.startswith("state_projector"),
+    "monet_lora": lambda n: "lora_" in n,
+    "learned_queries": lambda n: n.startswith("reasoner.learned_queries"),
+}
+
+
+def grad_report(policy) -> Dict[str, Dict[str, float]]:
+    rep = {}
+    for g, pred in GRAD_GROUPS.items():
+        norms, finite, n_params, n_nonzero = [], True, 0, 0
+        for n, p in policy.named_parameters():
+            if p.requires_grad and pred(n):
+                n_params += 1
+                if p.grad is not None:
+                    finite &= bool(torch.isfinite(p.grad).all())
+                    gn = float(p.grad.float().norm())
+                    norms.append(gn)
+                    n_nonzero += int(gn > 0)
+        if n_params:
+            rep[g] = {"grad_norm": float(np.sqrt(np.sum(np.square(norms)))) if norms else 0.0, "finite": finite,
+                      "n_tensors": n_params, "n_tensors_nonzero_grad": n_nonzero}
+    return rep
+
+
+def assert_gradients(rep: Dict, cfg: ExperimentConfig) -> None:
+    must = ["action_head", "conditioner"]
+    if cfg.state.inject_into_monet:
+        must.append("state_projector")
+    if cfg.monet.lora_enabled:
+        must.append("monet_lora")
+    if cfg.monet.reasoning_mode == "learned_query" and cfg.monet.num_latents > 0 and cfg.conditioner.feature_source != "vl_only":
+        must.append("learned_queries")
+    if cfg.monet.num_latents > 0 and cfg.conditioner.feature_source != "vl_only":
+        must.append("conditioner_latent_proj")
+    for g in must:
+        r = rep.get(g)
+        if r is None or not r["finite"] or r["grad_norm"] <= 0.0:
+            raise AssertionError(f"gradient audit failed for '{g}': {r}")
+
+
+# --------------------------------------------------------------------------- checkpoint io
+def save_checkpoint(out: Path, step: int, policy, opt, consumed: int, cfg, keep_last: int,
+                    keep_every: int = 0) -> Path:
+    d = out / f"ckpt_{step:07d}"
+    tmp = out / f".tmp_ckpt_{step:07d}"
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True)
+    torch.save(policy.trainable_state_dict(), tmp / "trainable.pt")
+    torch.save(opt.state_dict(), tmp / "optimizer.pt")
+    torch.save(rng_state(), tmp / "rng.pt")
+    write_json(tmp / "meta.json", {"step": step, "consumed_samples": consumed, "config": cfg.to_dict()})
+    if d.exists():
+        shutil.rmtree(d)
+    tmp.rename(d)
+    (out / "last").write_text(d.name)
+    ckpts = sorted(out.glob("ckpt_*"))
+    for old in ckpts[:-keep_last] if keep_last > 0 else []:
+        if keep_every > 0 and int(old.name.split("_")[1]) % keep_every == 0:
+            continue
+        shutil.rmtree(old, ignore_errors=True)
+    return d
+
+
+def latest_checkpoint(out: Path) -> Optional[Path]:
+    f = out / "last"
+    if f.exists() and (out / f.read_text().strip()).exists():
+        return out / f.read_text().strip()
+    return None
+
+
+def load_policy_from_checkpoint(ckpt_dir: str, device="cpu", overrides: Optional[List[str]] = None,
+                                tokenizer_path=None):
+    """Rebuild the policy from ``ckpt_dir/meta.json`` + trainable weights + run normalizer."""
+    ckpt = Path(ckpt_dir)
+    if (ckpt / "last").exists():
+        ckpt = ckpt / (ckpt / "last").read_text().strip()
+    meta = json.loads((ckpt / "meta.json").read_text())
+    cfg = config_from_dict(meta["config"])
+    if overrides:
+        from .config import _deep_update, parse_overrides
+
+        cfg = config_from_dict(_deep_update(cfg.to_dict(), parse_overrides(overrides)))
+    norm = ActionStateNormalizer.load(ckpt.parent / "normalizer.json")
+    policy, _ = build_policy(cfg, device=device, normalizer=norm, tokenizer_path=tokenizer_path)
+    policy.load_trainable_state_dict(torch.load(ckpt / "trainable.pt", map_location="cpu"))
+    policy.eval()
+    return policy, cfg, meta
+
+
+# --------------------------------------------------------------------------- main loop
+def train(cfg: ExperimentConfig, device: str = "cuda", tokenizer_path: Optional[str] = None,
+          max_minutes: Optional[float] = None) -> Dict:
+    out = Path(cfg.train.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    seed_everything(cfg.train.seed, cfg.train.deterministic)
+    write_json(out / "config.json", cfg.to_dict())
+    write_json(out / "environment.json", environment_report())
+
+    train_ds, val_ds, normalizer, split = build_datasets(cfg.data, cfg.action_head.action_horizon)
+    resume = latest_checkpoint(out)
+    if resume is not None and (out / "normalizer.json").exists():
+        normalizer = ActionStateNormalizer.load(out / "normalizer.json")  # keep the original stats
+    else:
+        normalizer.save(out / "normalizer.json")
+        write_json(out / "split.json", split)
+
+    policy, load_info = build_policy(cfg, device=device, normalizer=normalizer, tokenizer_path=tokenizer_path)
+    if cfg.train.init_from:
+        ck = Path(cfg.train.init_from)
+        if (ck / "last").exists():
+            ck = ck / (ck / "last").read_text().strip()
+        sd = torch.load(ck / "trainable.pt", map_location="cpu")
+        policy.load_trainable_state_dict(sd, strict=False)
+        append_jsonl(out / "train_log.jsonl", {"event": "init_from", "path": str(ck), "n_tensors": len(sd)})
+    write_json(out / "param_report.json", {**policy.parameter_report(), "monet_load_info": load_info})
+
+    opt = torch.optim.AdamW(param_groups(policy, cfg.train), betas=(0.9, 0.95))
+    base_lrs = [g["lr"] for g in opt.param_groups]
+    start_step, consumed = 0, 0
+    if resume is not None:
+        meta = json.loads((resume / "meta.json").read_text())
+        policy.load_trainable_state_dict(torch.load(resume / "trainable.pt", map_location="cpu"))
+        opt.load_state_dict(torch.load(resume / "optimizer.pt", map_location="cpu"))
+        set_rng_state(torch.load(resume / "rng.pt", weights_only=False))
+        start_step, consumed = meta["step"], meta["consumed_samples"]
+        append_jsonl(out / "train_log.jsonl", {"event": "resume", "from": str(resume), "step": start_step})
+
+    collate = Collator(policy.prompt_builder, normalizer, augment=cfg.data.augment, seed=cfg.train.seed)
+    micro = cfg.train.batch_size
+    loader = DataLoader(train_ds, batch_size=micro, sampler=ResumableSampler(len(train_ds), cfg.train.seed, consumed),
+                        collate_fn=collate, num_workers=cfg.data.num_workers, drop_last=True,
+                        persistent_workers=cfg.data.num_workers > 0, pin_memory=device.startswith("cuda"))
+    val_collate = Collator(policy.prompt_builder, normalizer, augment=False)
+    val_loader = DataLoader(val_ds, batch_size=micro, shuffle=False, collate_fn=val_collate,
+                            num_workers=cfg.data.num_workers, drop_last=False) if len(val_ds) else None
+    overfit_loader = None
+    if cfg.train.overfit_eval_every > 0:
+        overfit_loader = DataLoader(train_ds, batch_size=micro, shuffle=False, collate_fn=val_collate, num_workers=0)
+    it = iter(loader)
+    policy.train()
+    reset_peak_memory()
+    t_start = time.time()
+    step = start_step
+    last_metrics: Dict = {}
+    while step < cfg.train.max_steps:
+        t0 = time.time()
+        scale = lr_lambda(step, cfg.train)
+        for g, lr in zip(opt.param_groups, base_lrs):
+            g["lr"] = lr * scale
+        opt.zero_grad(set_to_none=True)
+        agg: Dict[str, float] = {}
+        t_data = 0.0
+        for _ in range(cfg.train.grad_accum):
+            td = time.time()
+            batch = next(it)
+            t_data += time.time() - td
+            loss, m = policy.compute_loss(batch)
+            (loss / cfg.train.grad_accum).backward()
+            consumed += micro
+            for k, v in m.items():
+                agg[k] = agg.get(k, 0.0) + v / cfg.train.grad_accum
+        grep = None
+        if step - start_step < cfg.train.gradient_audit_steps or step % cfg.train.log_every == 0:
+            grep = grad_report(policy)
+        if step - start_step < cfg.train.gradient_audit_steps:
+            assert_gradients(grep, cfg)
+            write_json(out / "gradient_audit.json", {"step": step, "report": grep, "passed": True})
+        gnorm = torch.nn.utils.clip_grad_norm_([p for p in policy.parameters() if p.requires_grad], cfg.train.grad_clip)
+        if not torch.isfinite(gnorm):
+            raise FloatingPointError(f"non-finite gradient norm at step {step}")
+        opt.step()
+        step += 1
+        dt = time.time() - t0
+        if step == start_step + 3:
+            write_json(out / "memory_profile.json", {"peak_gb_after_3_steps": peak_memory_gb(),
+                                                     "micro_batch": micro, "grad_accum": cfg.train.grad_accum})
+        if step % cfg.train.log_every == 0 or step == start_step + 1:
+            last_metrics = {"step": step, **agg, "grad_norm": float(gnorm), "lr_scale": scale,
+                            "step_time_s": dt, "data_time_s": t_data, "peak_mem_gb": peak_memory_gb(),
+                            "samples": consumed, "grad_groups": grep}
+            append_jsonl(out / "train_log.jsonl", last_metrics)
+            print(f"[{cfg.name}] step {step} loss {agg.get('loss', 0):.4f} gnorm {float(gnorm):.3f} "
+                  f"{dt:.2f}s/step mem {peak_memory_gb():.1f}GB", flush=True)
+        if val_loader is not None and (step % cfg.train.val_every == 0 or step == cfg.train.max_steps):
+            policy.eval()
+            vm = offline_metrics(policy, val_loader, max_batches=cfg.train.val_batches,
+                                 num_steps=cfg.action_head.num_inference_steps)
+            policy.train()
+            append_jsonl(out / "val_log.jsonl", {"step": step, **vm})
+            print(f"[{cfg.name}] val step {step}: {json.dumps(vm)}", flush=True)
+        if overfit_loader is not None and (step % cfg.train.overfit_eval_every == 0 or step == start_step + 1
+                                           or step == cfg.train.max_steps):
+            policy.eval()
+            om = offline_metrics(policy, overfit_loader, max_batches=1000, num_steps=cfg.action_head.num_inference_steps)
+            policy.train()
+            append_jsonl(out / "overfit_log.jsonl", {"step": step, **om})
+        if step % cfg.train.save_every == 0 or step == cfg.train.max_steps:
+            save_checkpoint(out, step, policy, opt, consumed, cfg, cfg.train.keep_last, cfg.train.keep_every)
+        if max_minutes is not None and (time.time() - t_start) / 60 > max_minutes:
+            save_checkpoint(out, step, policy, opt, consumed, cfg, cfg.train.keep_last, cfg.train.keep_every)
+            print(f"[{cfg.name}] stopping after {max_minutes} min (resumable)")
+            break
+    return {"step": step, "last": last_metrics, "output_dir": str(out)}
+
+
+def main(argv=None) -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", required=True)
+    ap.add_argument("--override", nargs="*", default=[])
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--tokenizer-path", default=None)
+    ap.add_argument("--max-minutes", type=float, default=None)
+    a = ap.parse_args(argv)
+    cfg = load_config(a.config, a.override)
+    print(json.dumps(train(cfg, a.device, a.tokenizer_path, a.max_minutes), indent=2, default=str))
+
+
+if __name__ == "__main__":
+    main()

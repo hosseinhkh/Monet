@@ -1,0 +1,253 @@
+{
+  "eval": {
+    "suite": "libero_spatial",
+    "task_ids": [
+      6
+    ],
+    "seeds": [
+      0
+    ],
+    "episodes_per_task": 2,
+    "init_state_policy": "seed_offset",
+    "max_steps": 24,
+    "num_wait_steps": 10,
+    "execution_prefix": 2,
+    "num_inference_steps": null,
+    "num_parallel_envs": 2,
+    "camera_size": 128,
+    "save_videos": 1,
+    "intervention": null,
+    "output_dir": "results/cpu_validation/closed_loop_tiny",
+    "gpu_hourly_cost_usd": null
+  },
+  "num_inference_steps": 4,
+  "tag": "tiny_cpu_G1",
+  "model_config": {
+    "name": "tiny_cpu",
+    "variant": "tiny",
+    "description": "",
+    "monet": {
+      "model_path": "tiny-random",
+      "model_revision": "39c1e320a3e15c357bff911fda263923edbdda37",
+      "modeling_file": null,
+      "dtype": "float32",
+      "attn_implementation": "sdpa",
+      "num_latents": 10,
+      "latent_convention": "sft",
+      "recurrence_impl": "cached",
+      "feedback_grad": "bptt",
+      "latent_layer": -1,
+      "vl_layer": -1,
+      "reasoning_mode": "self_fed",
+      "learned_query_parallel": true,
+      "freeze_vision": true,
+      "gradient_checkpointing": false,
+      "lora_enabled": false,
+      "lora_r": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.05,
+      "lora_target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj"
+      ],
+      "lora_layers": [
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      "tiny_hidden_size": 64,
+      "tiny_num_layers": 2
+    },
+    "prompt": {
+      "system_prompt": "You are a helpful assistant.",
+      "template": "Robot state: {state}\nTask: {instruction}\nThink in latent space about how to complete the task, then call the action tool.",
+      "state_placeholder_token": "<|fim_pad|>",
+      "num_state_tokens": 2,
+      "camera_keys": [
+        "image",
+        "wrist_image"
+      ],
+      "image_size": 112,
+      "append_latent_end_token": false
+    },
+    "state": {
+      "state_dim": 8,
+      "hidden_dim": 128,
+      "inject_into_monet": true,
+      "state_to_action_head": true,
+      "dropout": 0.0
+    },
+    "conditioner": {
+      "feature_source": "vl_plus_latents",
+      "cond_dim": 64,
+      "max_latents": 32,
+      "vl_max_tokens": 512,
+      "vl_token_select": "all",
+      "dropout": 0.0,
+      "latent_block_dropout": 0.0
+    },
+    "action_head": {
+      "type": "dit",
+      "action_dim": 7,
+      "action_horizon": 8,
+      "hidden_size": 64,
+      "num_layers": 2,
+      "num_heads": 4,
+      "ffn_mult": 4,
+      "dropout": 0.0,
+      "interleave_self_attention": true,
+      "num_timestep_buckets": 1000,
+      "time_schedule": "beta",
+      "beta_alpha": 1.5,
+      "beta_beta": 1.0,
+      "noise_s": 0.999,
+      "num_inference_steps": 4,
+      "mlp_hidden": 1024
+    },
+    "data": {
+      "source": "lerobot",
+      "root": "data/libero_spatial_image",
+      "repo_id": "lerobot/libero_spatial_image",
+      "repo_revision": "d86c0b94922572b3b657e1d1a3d01f0952ddeb46",
+      "val_fraction": 0.0,
+      "split_seed": 0,
+      "task_indices": [
+        0
+      ],
+      "max_episodes_per_task": 1,
+      "file_limit": 1,
+      "action_norm": "q99",
+      "state_norm": "meanstd",
+      "augment": false,
+      "num_workers": 0,
+      "max_windows": 32
+    },
+    "train": {
+      "output_dir": "runs/overfit",
+      "seed": 0,
+      "max_steps": 400,
+      "batch_size": 8,
+      "grad_accum": 1,
+      "lr_head": 0.0003,
+      "lr_lora": 5e-05,
+      "lr_state": 0.0003,
+      "weight_decay": 0.0001,
+      "warmup_steps": 20,
+      "min_lr_ratio": 0.1,
+      "grad_clip": 1.0,
+      "mixed_precision": "no",
+      "log_every": 10,
+      "val_every": 100000,
+      "val_batches": 50,
+      "save_every": 300,
+      "keep_last": 3,
+      "init_from": null,
+      "gradient_audit_steps": 1,
+      "overfit_eval_every": 50,
+      "deterministic": false,
+      "compile": false
+    },
+    "eval": {
+      "suite": "libero_spatial",
+      "task_ids": [
+        6
+      ],
+      "seeds": [
+        0
+      ],
+      "episodes_per_task": 2,
+      "init_state_policy": "seed_offset",
+      "max_steps": 24,
+      "num_wait_steps": 10,
+      "execution_prefix": 2,
+      "num_inference_steps": null,
+      "num_parallel_envs": 2,
+      "camera_size": 128,
+      "save_videos": 1,
+      "intervention": null,
+      "output_dir": "results/cpu_validation/closed_loop_tiny",
+      "gpu_hourly_cost_usd": null
+    }
+  },
+  "environment": {
+    "python": "3.11.18",
+    "platform": "Linux-6.18.44-fc-v338-x86_64-with-glibc2.39",
+    "torch": "2.7.1+cpu",
+    "torch_cuda": null,
+    "cuda_available": false,
+    "gpus": [],
+    "nvidia_driver": "n/a",
+    "repo_commit": "08939998d3d643a73a316e349faa34f420429153",
+    "repo_dirty": true,
+    "transformers": "4.54.0",
+    "peft": "0.21.2",
+    "accelerate": "1.15.0",
+    "safetensors": "0.8.0",
+    "numpy": "2.2.6",
+    "mujoco": "3.3.2",
+    "robosuite": "1.4.1",
+    "bddl": "1.0.1",
+    "pyarrow": "26.0.1",
+    "huggingface_hub": "0.36.2",
+    "libero": "0.1.0"
+  },
+  "task_table": [
+    [
+      0,
+      "pick_up_the_black_bowl_between_the_plate_and_the_ramekin_and_place_it_on_the_plate",
+      "pick up the black bowl between the plate and the ramekin and place it on the plate"
+    ],
+    [
+      1,
+      "pick_up_the_black_bowl_next_to_the_ramekin_and_place_it_on_the_plate",
+      "pick up the black bowl next to the ramekin and place it on the plate"
+    ],
+    [
+      2,
+      "pick_up_the_black_bowl_from_table_center_and_place_it_on_the_plate",
+      "pick up the black bowl from table center and place it on the plate"
+    ],
+    [
+      3,
+      "pick_up_the_black_bowl_on_the_cookie_box_and_place_it_on_the_plate",
+      "pick up the black bowl on the cookie box and place it on the plate"
+    ],
+    [
+      4,
+      "pick_up_the_black_bowl_in_the_top_drawer_of_the_wooden_cabinet_and_place_it_on_the_plate",
+      "pick up the black bowl in the top drawer of the wooden cabinet and place it on the plate"
+    ],
+    [
+      5,
+      "pick_up_the_black_bowl_on_the_ramekin_and_place_it_on_the_plate",
+      "pick up the black bowl on the ramekin and place it on the plate"
+    ],
+    [
+      6,
+      "pick_up_the_black_bowl_next_to_the_cookie_box_and_place_it_on_the_plate",
+      "pick up the black bowl next to the cookie box and place it on the plate"
+    ],
+    [
+      7,
+      "pick_up_the_black_bowl_on_the_stove_and_place_it_on_the_plate",
+      "pick up the black bowl on the stove and place it on the plate"
+    ],
+    [
+      8,
+      "pick_up_the_black_bowl_next_to_the_plate_and_place_it_on_the_plate",
+      "pick up the black bowl next to the plate and place it on the plate"
+    ],
+    [
+      9,
+      "pick_up_the_black_bowl_on_the_wooden_cabinet_and_place_it_on_the_plate",
+      "pick up the black bowl on the wooden cabinet and place it on the plate"
+    ]
+  ]
+}

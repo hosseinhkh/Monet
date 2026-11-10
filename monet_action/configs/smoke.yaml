@@ -1,0 +1,27 @@
+# Tiny overfit smoke test (G1). On the GPU server use the real Monet-7B:
+#   python -m monet_action.train --config configs/smoke.yaml
+_base_: base.yaml
+name: smoke
+variant: smoke
+monet:
+  num_latents: 10
+data:
+  file_limit: 1
+  max_windows: 32
+  task_indices: [0]
+  max_episodes_per_task: 1
+  val_fraction: 0.0
+  num_workers: 0
+action_head:
+  dropout: 0.0
+train:
+  output_dir: runs/smoke
+  max_steps: 300
+  batch_size: 8
+  grad_accum: 1
+  warmup_steps: 20
+  log_every: 10
+  val_every: 100000
+  save_every: 300
+  lr_head: 3.0e-4
+  lr_state: 3.0e-4

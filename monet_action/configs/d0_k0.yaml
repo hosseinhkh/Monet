@@ -1,0 +1,8 @@
+_base_: base.yaml
+name: d0_k0
+variant: D0
+description: Frozen Monet, K=0 (no latent reasoning). Trainable state projector + conditioner + DiT.
+monet:
+  num_latents: 0
+train:
+  output_dir: runs/d0_k0

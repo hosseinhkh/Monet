@@ -1,0 +1,10 @@
+_base_: base.yaml
+name: d5_mlp
+variant: D5
+description: Engineering control only. Same Monet K=10 features (frozen), MLP regression head instead of the DiT. Not an equally-trained variant of the main result.
+monet:
+  num_latents: 10
+action_head:
+  type: mlp
+train:
+  output_dir: runs/d5_mlp

@@ -1,0 +1,8 @@
+# Two-task closed-loop smoke test (development only; catches convention errors early).
+_base_: eval.yaml
+name: eval_smoke
+eval:
+  task_ids: [0, 1]
+  seeds: [0]
+  episodes_per_task: 2
+  save_videos: 2

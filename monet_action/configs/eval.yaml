@@ -1,0 +1,12 @@
+# Final-report protocol: all 10 LIBERO-Spatial tasks, 3 seeds x 10 episodes per task,
+# variant-matched benchmark initial states (seed_offset blocks), E=1, 4 Euler steps.
+_base_: base.yaml
+name: eval
+eval:
+  seeds: [0, 1, 2]
+  episodes_per_task: 10
+  init_state_policy: seed_offset
+  execution_prefix: 1
+  num_parallel_envs: 10
+  save_videos: 2
+  max_steps: 220
