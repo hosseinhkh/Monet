@@ -316,10 +316,15 @@ def check_memory(summary: str, budget_gb: float = 85.0) -> int:
     rows = json.loads(p.read_text())
     r: List[Result] = []
     fit = [x for x in rows if x.get("ok") and (x.get("peak_gb") or 1e9) <= budget_gb]
+    crashed = [x for x in rows if not x.get("ok") and x.get("error") and not x.get("oom")]
     for x in rows:
-        r.append(("PASS" if x in fit else "WARN", f"micro-batch {x['batch_size']}",
-                  f"peak {x.get('peak_gb')} GB, {x.get('step_time_s')} s/step" + ("" if x.get("ok") else " (failed / OOM)")))
-    if not fit:
+        why = "" if x.get("ok") else (" (out of memory)" if x.get("oom") or "oom" not in x else f" (CRASHED: {x.get('error')})")
+        r.append(("PASS" if x in fit else ("FAIL" if x in crashed else "WARN"), f"micro-batch {x['batch_size']}",
+                  f"peak {x.get('peak_gb')} GB, {x.get('step_time_s')} s/step{why}"))
+    if crashed:
+        r.append(("FAIL", "memory probes", f"a probe crashed for a reason other than memory - see the log above / "
+                  f"results/preflight/08_memory.log: {crashed[0].get('error')}"))
+    elif not fit:
         r.append(("FAIL", "recommended micro-batch", f"nothing fits in {budget_gb} GB - use monet.recurrence_impl=recompute monet.gradient_checkpointing=true"))
     else:
         b = max(x["batch_size"] for x in fit)

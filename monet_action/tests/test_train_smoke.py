@@ -53,3 +53,23 @@ def test_tiny_overfit_and_reload(cfg_path, data_root, processor, tmp_path):
     dl = DataLoader(tr, batch_size=8, shuffle=False, collate_fn=Collator(policy.prompt_builder, norm))
     om = offline_metrics(policy, dl, max_batches=1000, num_steps=4)
     assert abs(om["fm_loss"] - ov_last["fm_loss"]) < 1e-4
+
+
+def test_gpu_summary_reaches_status_and_events(cfg_path, data_root, processor, tmp_path, monkeypatch):
+    """CPU runs never take train()'s CUDA branch; feed it what setup_gpu returns on the server (the summary has
+    a ``name`` key - it once collided with RunMonitor.event(name, ...) and crashed every GPU run at start-up)."""
+    import monet_action.train as T
+
+    fake = {"cuda": True, "name": "NVIDIA RTX PRO 6000 Blackwell", "capability": "sm_120", "total_gb": 95.0,
+            "free_gb": 20.0, "visible_devices": 1, "CUDA_VISIBLE_DEVICES": "0", "MUJOCO_EGL_DEVICE_ID": "0",
+            "reserved_by_this_process_gb": 46.5, "reserve_fraction": 0.5, "reserved_now_gb": 46.5,
+            "limit_fraction": 0.5, "limit_gb": 47.5, "holder_lease": True}
+    monkeypatch.setattr(T, "setup_gpu", lambda device: dict(fake))
+    out = tmp_path / "run"
+    cfg = load_config(cfg_path, [f"data.root={data_root}", f"train.output_dir={out}", "train.max_steps=2",
+                                 "data.max_windows=8", "train.batch_size=4", "train.overfit_eval_every=0"])
+    train(cfg, device="cpu")
+    ev = [json.loads(line) for line in (out / "events.jsonl").read_text().splitlines()]
+    g = [e for e in ev if e["event"] == "gpu"]
+    assert g and g[0]["name"] == fake["name"] and g[0]["holder_lease"] is True
+    assert json.loads((out / "status.json").read_text())["gpu"]["name"] == fake["name"]

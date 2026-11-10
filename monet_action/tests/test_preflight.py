@@ -18,6 +18,38 @@ def test_memory_recommendation(tmp_path):
     assert preflight.check_memory(str(p)) == 1
 
 
+def test_memory_check_separates_crash_from_oom(tmp_path, capsys):
+    p = tmp_path / "memory_profile.json"
+    p.write_text(json.dumps([{"batch_size": 2, "ok": True, "peak_gb": 30.0, "step_time_s": 1.0, "oom": False, "error": None},
+                             {"batch_size": 4, "ok": False, "peak_gb": None, "step_time_s": None, "oom": True,
+                              "error": "torch.OutOfMemoryError: CUDA out of memory"}]))
+    assert preflight.check_memory(str(p), budget_gb=44) == 0
+    assert "out of memory" in capsys.readouterr().out
+    p.write_text(json.dumps([{"batch_size": 2, "ok": False, "peak_gb": None, "step_time_s": None, "oom": False,
+                              "error": "TypeError: boom"}]))
+    assert preflight.check_memory(str(p), budget_gb=44) == 1
+    out = capsys.readouterr().out
+    assert "CRASHED: TypeError: boom" in out and "nothing fits" not in out
+
+
+def test_profile_memory_stops_at_a_crash(tmp_path):
+    """A probe that fails for a non-memory reason is recorded as a crash and stops the profile."""
+    import subprocess
+
+    from conftest import ROOT, common_sh_env
+
+    out = tmp_path / "mp.json"
+    env = {**common_sh_env(), "BATCHES": "2 4", "PROFILE_OUT": str(out), "DEVICE": "cpu", "MONET_GPU_HOLD": "0",
+           "PROFILE_OVERRIDES": "no_such_section.no_such_key=1"}
+    r = subprocess.run(["bash", "scripts/profile_memory.sh", "configs/tiny_cpu.yaml"], cwd=ROOT, env=env,
+                       capture_output=True, text=True, timeout=300)
+    rows = json.loads(out.read_text())
+    assert [x["batch_size"] for x in rows] == [2], r.stdout + r.stderr  # batch 4 not attempted
+    assert rows[0]["ok"] is False and rows[0]["oom"] is False and rows[0]["error"]
+    assert "CRASHED (not out of memory)" in r.stderr
+    assert preflight.check_memory(str(out), budget_gb=44) == 1
+
+
 def test_gpu_test_log_must_not_skip(tmp_path):
     log = tmp_path / "gpu.log"
     log.write_text("........x\n8 passed, 1 xfailed in 300.1s\n")

@@ -247,8 +247,9 @@ class RunMonitor:
             self.status.update(fields)
             self._write_status()
 
-    def event(self, name: str, **data: Any) -> None:
-        rec = {"time": time.time(), "event": name, **data}
+    def event(self, name: str, /, **data: Any) -> None:
+        """Append an event; ``data`` may use any key (e.g. the GPU summary's ``name``), ``event``/``time`` win."""
+        rec = {**data, "time": time.time(), "event": name}
         _append_jsonl(self.dir / "events.jsonl", rec, self._lock)
 
     def _write_status(self) -> None:
