@@ -19,7 +19,7 @@ RGB (agent + wrist) + instruction + 8D state + TOOL_RESULT (previously executed 
 The code, configs, tests, monitoring and scripts for G0–G3 are complete. Everything that can run without a
 GPU was run in this repository's CPU container:
 
-* the full test suite: 148 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
+* the full test suite: 151 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
 * the whole pipeline dry run (`MODEL=tiny bash scripts/dry_run.sh`): 6 training variants, warm-start chains, in-training simulator checks, all 21 evaluation runs and the report;
 * the G0 audit (`results/audit/g0_report_tiny.*`);
 * a tiny overfit;
@@ -39,24 +39,17 @@ There are **no task-success results** yet. Nothing here is evidence for or again
 
 ## Quick start on the GPU server
 
+The full step-by-step guide, with pass criteria, monitoring and troubleshooting, is
+**[docs/RUNBOOK.md](docs/RUNBOOK.md)**. The short version:
+
 ```bash
-cd Monet/monet_action
-bash scripts/setup_env.sh          # isolated venv ~/venvs/monet_action (torch 2.7.1 cu128, transformers 4.54.0, LIBERO@8f1084e)
+git clone https://github.com/hosseinhkh/Monet.git && cd Monet && git checkout claude/friendly-goldberg-6d4ukm && cd monet_action
+bash scripts/setup_env.sh && conda activate monet_action   # isolated conda env (torch 2.7.1 cu128, transformers 4.54.0, LIBERO@8f1084e)
 bash scripts/download_data.sh      # lerobot/libero_spatial_image@d86c0b9 (~6.5 GB) + Monet-7B@39c1e32 (~16.6 GB)
-bash scripts/download_libero_raw.sh   # optional: one raw LIBERO demo file (~0.5 GB) for the demo-replay sim test
-make dashboard &                   # monitoring UI on 127.0.0.1:8765 (from your laptop: ssh -L 8765:localhost:8765 <server>)
-bash scripts/audit_upstream.sh     # G0 on the REAL Monet-7B: audit report + Monet-7B GPU tests + all other tests
-bash scripts/profile_memory.sh configs/d2_lora.yaml   # pick micro-batch from measured peak memory
-MODEL=real bash scripts/dry_run.sh # every variant x 6 steps + the complete evaluation script + report (~1 h); must print DRY RUN OK
-bash scripts/smoke_overfit.sh      # G1: overfit 32 windows with Monet-7B + 2-task closed-loop smoke rollout
-bash scripts/train_d0.sh           # D0  frozen Monet, K=0
-bash scripts/train_d1.sh           # D1  frozen Monet, K=10
-bash scripts/train_d2.sh           # D2  LoRA, K=10: 10k joint steps from D1@10k (budget-matched)
-bash scripts/train_d0_lora.sh      # D0-LoRA  matched control for D2 (same LoRA + budget, K=0)
-bash scripts/train_d4.sh           # D4  matched-compute learned-query control
-bash scripts/train_d5.sh           # D5  MLP head engineering control
-bash scripts/evaluate_all.sh       # G3: 10 tasks x 3 seeds x 10 eps, E=1/2, D3 + bypass interventions, 2/4/8 steps, latency, report
-# or everything: bash scripts/run_phase1.sh   (EXTRA=1 adds the K sweep {5,20} and ablations; every stage resumes)
+bash scripts/preflight.sh          # env, data, weights, render, all tests, REAL Monet-7B tests, audit, memory, dry run, smoke -> READY TO TRAIN
+bash scripts/train_all.sh          # D0, D1, D2 (from D1@10k), D0-LoRA (from D0@10k), D4, D5; EXTRA=1 adds K sweep + ablations
+bash scripts/evaluate_all.sh       # 10 tasks x 3 seeds x 10 eps, E=1/2, D3 + bypass interventions, 2/4/8 steps, latency, report
+make dashboard                     # monitoring on 127.0.0.1:8765 (from your laptop: ssh -N -L 8765:localhost:8765 <server>)
 ```
 
 * **Resuming.** Re-running a training command resumes deterministically: model, optimiser, RNG and

@@ -11,3 +11,4 @@ results/eval/**/videos/
 .ruff_cache/
 runs_dry/
 results/dry_run/
+results/preflight/

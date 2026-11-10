@@ -31,7 +31,11 @@ def test_scripts_are_executable_and_strict():
         assert sh.stat().st_mode & 0o111, f"{sh.name} is not executable"
         text = sh.read_text()
         assert text.startswith("#!/usr/bin/env bash"), sh.name
-        assert "common.sh" in text or "set -euo pipefail" in text, f"{sh.name}: no strict mode"
+        # setup_env.sh uses `set -eo pipefail` and enables -u only after `conda activate`
+        # (conda's activation scripts reference unset variables)
+        assert "common.sh" in text or "set -euo pipefail" in text or "set -eo pipefail" in text, f"{sh.name}: no strict mode"
+        last = [ln for ln in text.strip().splitlines() if ln.strip() and not ln.lstrip().startswith("#")][-1]
+        assert not last.lstrip().startswith("["), f"{sh.name}: a final `[ ... ] && ...` makes the script exit 1"
 
 
 @pytest.mark.parametrize("cfg", sorted(p.name for p in (ROOT / "configs").glob("*.yaml")))

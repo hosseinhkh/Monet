@@ -1,42 +1,61 @@
 #!/usr/bin/env bash
-# Create an ISOLATED venv for Monet-Action (does not touch existing OpenVLA/LIBERO/MuJoCo envs).
-#   bash scripts/setup_env.sh                # GPU server (CUDA 12.8 wheels, Blackwell sm_120)
-#   TORCH_INDEX=https://download.pytorch.org/whl/cpu bash scripts/setup_env.sh   # CPU-only
-set -euo pipefail
+# Create an ISOLATED environment for Monet-Action (never modifies existing OpenVLA / LIBERO / MuJoCo envs).
+#   bash scripts/setup_env.sh                                   # conda env "monet_action" if conda exists, else a venv
+#   ENV_KIND=conda ENV_NAME=monet_action bash scripts/setup_env.sh
+#   ENV_KIND=venv  VENV=$HOME/venvs/monet_action bash scripts/setup_env.sh
+#   TORCH_INDEX=https://download.pytorch.org/whl/cpu bash scripts/setup_env.sh   # CPU-only machine
+set -eo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENV="${VENV:-$HOME/venvs/monet_action}"
-PY="${PYTHON:-python3.11}"
-TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu128}"
+ENV_KIND="${ENV_KIND:-auto}"
+ENV_NAME="${ENV_NAME:-monet_action}"
+TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu128}"   # CUDA 12.8 wheels: Blackwell (sm_100/sm_120)
 THIRD_PARTY="${THIRD_PARTY:-$HOME/third_party}"
 LIBERO_SHA=8f1084e3132a39270c3a13ebe37270a43ece2a01
+if [ "$ENV_KIND" = "auto" ]; then command -v conda >/dev/null && ENV_KIND=conda || ENV_KIND=venv; fi
 
-if command -v uv >/dev/null; then uv venv -p "$PY" "$VENV"; else "$PY" -m venv "$VENV"; fi
-# shellcheck disable=SC1091
-source "$VENV/bin/activate"
-PIP="pip"; command -v uv >/dev/null && PIP="uv pip"
-$PIP install --index-url "$TORCH_INDEX" "torch==2.7.1" "torchvision==0.22.1"
-$PIP install -r "$HERE/environment/train_requirements.txt"
-$PIP install -r "$HERE/environment/sim_requirements.txt"
+if [ "$ENV_KIND" = "conda" ]; then
+  eval "$(conda shell.bash hook)"
+  if conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+    echo "[setup] reusing existing conda env '$ENV_NAME'"
+  else
+    conda create -y -n "$ENV_NAME" python=3.11
+  fi
+  conda activate "$ENV_NAME"
+else
+  VENV="${VENV:-$HOME/venvs/monet_action}"
+  PY="${PYTHON:-python3.11}"
+  [ -d "$VENV" ] || "$PY" -m venv "$VENV"
+  # shellcheck disable=SC1091
+  source "$VENV/bin/activate"
+fi
+set -u
+python -m pip install --upgrade pip
+python -m pip install --index-url "$TORCH_INDEX" "torch==2.7.1" "torchvision==0.22.1"
+python -m pip install -r "$HERE/environment/train_requirements.txt" -r "$HERE/environment/sim_requirements.txt" \
+                      -r "$HERE/environment/dev_requirements.txt"
 
-# LIBERO at a pinned commit, made importable via a .pth file (its setup.py does not
-# install the nested package correctly in editable mode).
+# LIBERO at a pinned commit, importable via a .pth file (its setup.py does not install the nested package).
 mkdir -p "$THIRD_PARTY"
-if [ ! -d "$THIRD_PARTY/LIBERO" ]; then git clone https://github.com/Lifelong-Robot-Learning/LIBERO "$THIRD_PARTY/LIBERO"; fi
-git -C "$THIRD_PARTY/LIBERO" checkout -q "$LIBERO_SHA"
+[ -d "$THIRD_PARTY/LIBERO/.git" ] || git clone https://github.com/Lifelong-Robot-Learning/LIBERO "$THIRD_PARTY/LIBERO"
+git -C "$THIRD_PARTY/LIBERO" fetch -q origin && git -C "$THIRD_PARTY/LIBERO" checkout -q "$LIBERO_SHA"
 SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
 echo "$THIRD_PARTY/LIBERO" > "$SITE/libero_src.pth"
 # Non-interactive LIBERO config (LIBERO otherwise prompts on first import).
 mkdir -p "$HOME/.libero"
 if [ ! -f "$HOME/.libero/config.yaml" ]; then
   R="$THIRD_PARTY/LIBERO/libero/libero"
-  printf "benchmark_root: %s\nbddl_files: %s/bddl_files\ninit_states: %s/init_files\ndatasets: %s/../datasets\nassets: %s/assets\n" "$R" "$R" "$R" "$R" "$R" > "$HOME/.libero/config.yaml"
+  printf "benchmark_root: %s\nbddl_files: %s/bddl_files\ninit_states: %s/init_files\ndatasets: %s/../datasets\nassets: %s/assets\n" \
+    "$R" "$R" "$R" "$R" "$R" > "$HOME/.libero/config.yaml"
 fi
 python - <<'PY'
-import torch, transformers
-print("torch", torch.__version__, "cuda", torch.version.cuda, "available", torch.cuda.is_available())
+import torch, transformers, mujoco, robosuite
+print("torch", torch.__version__, "| cuda", torch.version.cuda, "| available", torch.cuda.is_available())
 if torch.cuda.is_available():
-    print(torch.cuda.get_device_name(0), "capability", torch.cuda.get_device_capability(0))
-print("transformers", transformers.__version__)
+    print("gpu", torch.cuda.get_device_name(0), "capability", torch.cuda.get_device_capability(0))
+print("transformers", transformers.__version__, "| mujoco", mujoco.__version__, "| robosuite", robosuite.__version__)
+from libero.libero import benchmark  # noqa: F401
+print("LIBERO import ok")
 PY
-pip freeze > "$HERE/environment/server_lock.txt"
-echo "venv ready: $VENV  (lock written to environment/server_lock.txt)"
+python -m pip freeze > "$HERE/environment/server_lock.txt"
+echo "[setup] done ($ENV_KIND). Lock written to environment/server_lock.txt."
+if [ "$ENV_KIND" = "conda" ]; then echo "[setup] next: conda activate $ENV_NAME"; fi

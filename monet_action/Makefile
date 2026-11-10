@@ -1,6 +1,10 @@
 # Monet-Action developer targets (run from monet_action/). `make help` lists them.
 VENV ?= $(HOME)/venvs/monet_action
-PY := $(VENV)/bin/python
+# Python: an active conda env (other than base) wins, then $(VENV), then whatever `python` is on PATH.
+ifneq ($(and $(CONDA_PREFIX),$(filter-out base,$(CONDA_DEFAULT_ENV))),)
+PY ?= $(CONDA_PREFIX)/bin/python
+endif
+PY ?= $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python)
 MUJOCO_GL ?= egl
 export PYTHONPATH := $(CURDIR)/src
 export TOKENIZERS_PARALLELISM := false
@@ -12,7 +16,8 @@ RUN ?= runs/d1_k10
 CPU := MUJOCO_GL=osmesa PYOPENGL_PLATFORM=osmesa
 
 .PHONY: help test-fast test-all test-tokens test-monet test-monet7b test-gradients test-dit test-data test-tool \
-        test-sim test-train test-dashboard audit-cpu audit lint format dashboard bundle cpu-validation
+        test-sim test-train test-dashboard audit-cpu audit lint format dashboard bundle cpu-validation \
+        preflight preflight-cpu dry-run train-all evaluate-all
 
 help: ## list targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -59,3 +64,15 @@ lint: ## ruff (style + pyflakes) on the package and tests
 	$(PY) -m ruff check src tests
 format: ## ruff autofix + import sorting
 	$(PY) -m ruff check --fix src tests
+
+# ---------------------------------------------------------------- pipeline
+preflight: ## full GPU preflight (env, data, weights, render, tests, Monet-7B, audit, memory, dry run, smoke)
+	bash scripts/preflight.sh
+preflight-cpu: ## preflight self-test on a CPU machine (tiny model, GPU steps skipped)
+	bash scripts/preflight.sh --cpu
+dry-run: ## whole pipeline for a few steps (MODEL=real on the GPU server; MODEL=tiny elsewhere)
+	MODEL=$(or $(MODEL),real) bash scripts/dry_run.sh
+train-all: ## all Phase-1 training runs in dependency order (resumable)
+	bash scripts/train_all.sh
+evaluate-all: ## full closed-loop evaluation + report
+	bash scripts/evaluate_all.sh

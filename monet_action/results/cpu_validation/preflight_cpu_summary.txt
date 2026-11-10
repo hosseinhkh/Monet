@@ -1,0 +1,12 @@
+================ PREFLIGHT SUMMARY ================
+  env        PASS (1s)
+  data       PASS (2s)
+  weights    SKIP
+  render     PASS (14s)
+  tests_cpu  PASS (133s)
+  tests_gpu  SKIP
+  audit      PASS (19s)
+  memory     SKIP
+  dry_run    PASS (561s)
+  smoke      PASS (6s)
+CPU PREFLIGHT OK (GPU steps skipped - run without --cpu on the server)
