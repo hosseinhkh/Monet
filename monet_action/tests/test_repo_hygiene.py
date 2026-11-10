@@ -47,3 +47,11 @@ def test_no_debugger_leftovers_in_package():
     for py in (ROOT / "src").rglob("*.py"):
         t = py.read_text()
         assert "import pdb" not in t and "breakpoint()" not in t, py
+
+
+def test_package_installs_editable_from_setup_script():
+    """`python -m monet_action.<tool>` must work outside scripts/ (setup_env.sh does `pip install -e`)."""
+    text = (ROOT / "scripts" / "setup_env.sh").read_text()
+    assert 'pip install -e "$HERE"' in text
+    py = (ROOT / "pyproject.toml").read_text()
+    assert 'where = ["src"]' in py and "dashboard/static" in py

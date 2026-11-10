@@ -42,12 +42,19 @@ cd monet_action
 bash scripts/setup_env.sh
 ```
 This creates the conda env `monet_action` (Python 3.11) with torch 2.7.1 from the CUDA 12.8 wheels,
-transformers 4.54.0, MuJoCo 3.3.2, robosuite 1.4.1 and LIBERO@8f1084e. It also writes
-`environment/server_lock.txt`. It takes about 10 minutes.
+transformers 4.54.0, MuJoCo 3.3.2, robosuite 1.4.1 and LIBERO@8f1084e. It installs this package in
+editable mode (`pip install -e .`) and writes `environment/server_lock.txt`. It takes about 10 minutes.
 
 ```bash
 conda activate monet_action
 ```
+
+If the env was created before the editable install was added to `setup_env.sh` (error
+`No module named 'monet_action'`), run this once from `monet_action/`:
+```bash
+pip install -e . --no-deps
+```
+Never `pip install monet_action` from PyPI: that is not this code.
 
 ## 3. Downloads
 

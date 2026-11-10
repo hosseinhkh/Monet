@@ -33,6 +33,9 @@ python -m pip install --upgrade pip
 python -m pip install --index-url "$TORCH_INDEX" "torch==2.7.1" "torchvision==0.22.1"
 python -m pip install -r "$HERE/environment/train_requirements.txt" -r "$HERE/environment/sim_requirements.txt" \
                       -r "$HERE/environment/dev_requirements.txt"
+# The package itself, editable, so `python -m monet_action.<tool>` works from any directory.
+# (Never `pip install monet_action` from PyPI: that is not this code.)
+python -m pip install -e "$HERE" --no-deps
 
 # LIBERO at a pinned commit, importable via a .pth file (its setup.py does not install the nested package).
 mkdir -p "$THIRD_PARTY"
@@ -55,6 +58,8 @@ if torch.cuda.is_available():
 print("transformers", transformers.__version__, "| mujoco", mujoco.__version__, "| robosuite", robosuite.__version__)
 from libero.libero import benchmark  # noqa: F401
 print("LIBERO import ok")
+import monet_action, os
+print("monet_action importable from", os.path.dirname(monet_action.__file__))
 PY
 python -m pip freeze > "$HERE/environment/server_lock.txt"
 echo "[setup] done ($ENV_KIND). Lock written to environment/server_lock.txt."

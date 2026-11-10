@@ -13,6 +13,9 @@ dependencies = []  # pinned in environment/*.txt; see README
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+monet_action = ["dashboard/static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
