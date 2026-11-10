@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import os
+import random
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -48,6 +49,9 @@ class PolicyObservation:
     images: Dict[str, np.ndarray]
     state: np.ndarray
     instruction: str
+    # The agent's own previously executed commands (newest last), filled by the tool runtime from
+    # TOOL_RESULT. Not privileged: the policy issued them itself. None at episode start.
+    prev_actions: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -95,9 +99,25 @@ class LiberoEnv:
         self.max_steps = MAX_STEPS.get(suite_name, 300)
         self.t = 0
 
-    def reset(self, init_state_idx: int, num_wait_steps: int = 10) -> PolicyObservation:
-        self.env.reset()
-        obs = self.env.set_init_state(self.init_states[init_state_idx % len(self.init_states)])
+    def reset(self, init_state_idx: int, num_wait_steps: int = 10, reset_seed: Optional[int] = None) -> PolicyObservation:
+        """Reset to a fixed benchmark init state.
+
+        LIBERO hard-resets (reloads the scene XML) on every ``reset()`` and re-samples some fixture
+        textures from Python's *global* ``random``/``numpy`` RNGs, so without seeding, the same init
+        state renders differently depending on how many resets happened before (verified in G0:
+        identical MuJoCo state, ~12-16% of pixels differ). The RNGs are therefore seeded from
+        (task, init state) - matched across variants and seeds - and restored afterwards.
+        """
+        seed = reset_seed if reset_seed is not None else 1_000_003 * self.task_id + int(init_state_idx)
+        py_state, np_state = random.getstate(), np.random.get_state()
+        random.seed(seed)
+        np.random.seed(seed % (2 ** 32))
+        try:
+            self.env.reset()
+            obs = self.env.set_init_state(self.init_states[init_state_idx % len(self.init_states)])
+        finally:
+            random.setstate(py_state)
+            np.random.set_state(np_state)
         for _ in range(num_wait_steps):  # let objects settle (standard LIBERO/OpenVLA protocol)
             obs, _, _, _ = self.env.step(LIBERO_DUMMY_ACTION.tolist())
         self.t = 0

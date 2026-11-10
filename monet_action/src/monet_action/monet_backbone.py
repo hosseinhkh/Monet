@@ -65,6 +65,7 @@ class MonetLatentReasoner(nn.Module):
         self.cfg = monet_cfg
         self.cond_cfg = conditioner_cfg
         D = self.hidden_size
+        self._timer = Timer(None)
         self.learned_queries = None
         if monet_cfg.reasoning_mode == "learned_query":
             from .state_context import embedding_rms
@@ -95,7 +96,15 @@ class MonetLatentReasoner(nn.Module):
         return self.embed_tokens.weight.dtype
 
     # ------------------------------------------------------------------ inputs
-    def embed(self, inputs: MonetInputs, state_tokens: Optional[torch.Tensor]) -> torch.Tensor:
+    @staticmethod
+    def _scatter(emb: torch.Tensor, mask: torch.Tensor, tokens: torch.Tensor, what: str) -> torch.Tensor:
+        n = int(mask[0].sum())
+        if tokens.shape[1] != n or not bool((mask.sum(1) == n).all()):
+            raise RuntimeError(f"{what} token / placeholder count mismatch")
+        return emb.masked_scatter(mask.unsqueeze(-1).expand_as(emb), tokens.to(emb.dtype).reshape(-1, emb.shape[-1]))
+
+    def embed(self, inputs: MonetInputs, state_tokens: Optional[torch.Tensor],
+              tool_tokens: Optional[torch.Tensor] = None) -> torch.Tensor:
         emb = self.embed_tokens(inputs.input_ids)
         if inputs.pixel_values is not None:
             ctx = torch.no_grad() if self.cfg.freeze_vision else torch.enable_grad()
@@ -107,11 +116,11 @@ class MonetLatentReasoner(nn.Module):
                 raise RuntimeError("image features / image tokens mismatch")
             emb = emb.masked_scatter(mask, img.to(emb.dtype))
         if state_tokens is not None:
-            smask = inputs.state_mask
-            n = int(smask[0].sum())
-            if state_tokens.shape[1] != n or not bool((smask.sum(1) == n).all()):
-                raise RuntimeError("state token / placeholder count mismatch")
-            emb = emb.masked_scatter(smask.unsqueeze(-1).expand_as(emb), state_tokens.to(emb.dtype).reshape(-1, emb.shape[-1]))
+            emb = self._scatter(emb, inputs.state_mask, state_tokens, "state")
+        if inputs.tool_mask is not None:
+            if tool_tokens is None:
+                raise RuntimeError("prompt has TOOL_RESULT placeholders but no tool tokens were given")
+            emb = self._scatter(emb, inputs.tool_mask, tool_tokens, "TOOL_RESULT")
         return emb
 
     def position_ids(self, inputs: MonetInputs) -> torch.Tensor:
@@ -130,24 +139,28 @@ class MonetLatentReasoner(nn.Module):
 
     # ------------------------------------------------------------------ forward
     def forward(self, inputs: MonetInputs, state_tokens: Optional[torch.Tensor] = None,
-                num_latents: Optional[int] = None) -> BackboneOutput:
+                num_latents: Optional[int] = None, tool_tokens: Optional[torch.Tensor] = None,
+                timer: Optional[Timer] = None) -> BackboneOutput:
+        """Timings (ms, disjoint): monet_embed (vision tower + token embedding + RoPE ids),
+        monet_prefill (prompt forward) and monet_latent_steps (the K self-fed steps)."""
         K = inputs.num_latents if num_latents is None else num_latents
         if K != inputs.num_latents:
             raise ValueError("num_latents must match the prompt that was built")
-        timer = Timer(inputs.input_ids.device)
-        with timer("embed"):
-            emb = self.embed(inputs, state_tokens)
+        own_timer = timer is None
+        timer = timer or Timer(inputs.input_ids.device)
+        self._timer = timer
+        with timer("monet_embed"):
+            emb = self.embed(inputs, state_tokens, tool_tokens)
             pos = self.position_ids(inputs)
         am = inputs.attention_mask
         P = inputs.slot_start
         need_hidden = self.cfg.latent_layer != -1 or self.cfg.vl_layer != -1
-        with timer("reason"):
-            if self.cfg.reasoning_mode == "learned_query":
-                vl, lat, fed = self._learned_query(emb, pos, am, P, K, need_hidden)
-            elif self.cfg.recurrence_impl == "cached":
-                vl, lat, fed = self._cached(emb, pos, am, P, K, need_hidden)
-            else:
-                vl, lat, fed = self._recompute(emb, pos, am, P, K, need_hidden)
+        if self.cfg.reasoning_mode == "learned_query":
+            vl, lat, fed = self._learned_query(emb, pos, am, P, K, need_hidden)
+        elif self.cfg.recurrence_impl == "cached":
+            vl, lat, fed = self._cached(emb, pos, am, P, K, need_hidden)
+        else:
+            vl, lat, fed = self._recompute(emb, pos, am, P, K, need_hidden)
         vl_mask = self._vl_mask(inputs, P)
         # padded / unselected positions never reach the action head (also guards against
         # non-finite values at fully-masked padded query rows under some attention kernels)
@@ -155,7 +168,8 @@ class MonetLatentReasoner(nn.Module):
         if self.cond_cfg is not None and vl.shape[1] > self.cond_cfg.vl_max_tokens:
             n = self.cond_cfg.vl_max_tokens
             vl, vl_mask = vl[:, -n:], vl_mask[:, -n:]
-        return BackboneOutput(vl_tokens=vl, vl_mask=vl_mask, latents=lat, fed_inputs=fed, timings=timer.result())
+        return BackboneOutput(vl_tokens=vl, vl_mask=vl_mask, latents=lat, fed_inputs=fed,
+                              timings=timer.result() if own_timer else {})
 
     # -------------------------------------------------------------- KV-cache impl
     def _lm(self, embeds, pos, am, cache, cache_position, need_hidden):
@@ -168,21 +182,23 @@ class MonetLatentReasoner(nn.Module):
 
     def _cached(self, emb, pos, am, P, K, need_hidden):
         dev = emb.device
-        cache = DynamicCache()
-        out = self._lm(emb[:, :P], pos[:, :, :P], am[:, :P], cache, torch.arange(P, device=dev), need_hidden)
-        vl = _select_layer(out, self.cfg.vl_layer)
-        cache = out.past_key_values
-        h = out.last_hidden_state[:, -1]
+        with self._timer("monet_prefill"):
+            cache = DynamicCache()
+            out = self._lm(emb[:, :P], pos[:, :, :P], am[:, :P], cache, torch.arange(P, device=dev), need_hidden)
+            vl = _select_layer(out, self.cfg.vl_layer)
+            cache = out.past_key_values
+            h = out.last_hidden_state[:, -1]
         lats, feds = [], []
-        for j in range(K):
-            p = P + j
-            x = self._feed(h)
-            feds.append(x)
-            o = self._lm(x.unsqueeze(1), pos[:, :, p:p + 1], am[:, :p + 1], cache,
-                         torch.tensor([p], device=dev), need_hidden)
-            cache = o.past_key_values
-            h = o.last_hidden_state[:, -1]
-            lats.append(_select_layer(o, self.cfg.latent_layer)[:, -1])
+        with self._timer("monet_latent_steps"):
+            for j in range(K):
+                p = P + j
+                x = self._feed(h)
+                feds.append(x)
+                o = self._lm(x.unsqueeze(1), pos[:, :, p:p + 1], am[:, :p + 1], cache,
+                             torch.tensor([p], device=dev), need_hidden)
+                cache = o.past_key_values
+                h = o.last_hidden_state[:, -1]
+                lats.append(_select_layer(o, self.cfg.latent_layer)[:, -1])
         return vl, self._stack(lats, emb), self._stack(feds, emb)
 
     # -------------------------------------------------------------- recompute impl
@@ -192,7 +208,8 @@ class MonetLatentReasoner(nn.Module):
         vl = None
         for j in range(K + 1):
             L = P + j
-            o = self._lm(cur, pos[:, :, :L], am[:, :L], None, None, need_hidden)
+            with self._timer("monet_prefill" if j == 0 else "monet_latent_steps"):
+                o = self._lm(cur, pos[:, :, :L], am[:, :L], None, None, need_hidden)
             if j == 0:
                 vl = _select_layer(o, self.cfg.vl_layer)
             if j < K:
@@ -212,19 +229,23 @@ class MonetLatentReasoner(nn.Module):
         q = self.learned_queries[:K].to(emb.dtype).unsqueeze(0).expand(B, -1, -1)
         if self.cfg.learned_query_parallel or K == 0:
             seq = torch.cat([emb[:, :P], q], 1)
-            o = self._lm(seq, pos[:, :, :P + K], am[:, :P + K], None, None, need_hidden)
+            with self._timer("monet_prefill"):  # prompt + K query slots in one forward
+                o = self._lm(seq, pos[:, :, :P + K], am[:, :P + K], None, None, need_hidden)
             vl = _select_layer(o, self.cfg.vl_layer)[:, :P]
             lat = _select_layer(o, self.cfg.latent_layer)[:, P:P + K]
             return vl, lat, q
-        cache = DynamicCache()
-        out = self._lm(emb[:, :P], pos[:, :, :P], am[:, :P], cache, torch.arange(P, device=dev), need_hidden)
-        vl, cache = _select_layer(out, self.cfg.vl_layer), out.past_key_values
+        with self._timer("monet_prefill"):
+            cache = DynamicCache()
+            out = self._lm(emb[:, :P], pos[:, :, :P], am[:, :P], cache, torch.arange(P, device=dev), need_hidden)
+            vl, cache = _select_layer(out, self.cfg.vl_layer), out.past_key_values
         lats = []
-        for j in range(K):
-            p = P + j
-            o = self._lm(q[:, j:j + 1], pos[:, :, p:p + 1], am[:, :p + 1], cache, torch.tensor([p], device=dev), need_hidden)
-            cache = o.past_key_values
-            lats.append(_select_layer(o, self.cfg.latent_layer)[:, -1])
+        with self._timer("monet_latent_steps"):
+            for j in range(K):
+                p = P + j
+                o = self._lm(q[:, j:j + 1], pos[:, :, p:p + 1], am[:, :p + 1], cache,
+                             torch.tensor([p], device=dev), need_hidden)
+                cache = o.past_key_values
+                lats.append(_select_layer(o, self.cfg.latent_layer)[:, -1])
         return vl, self._stack(lats, emb), q
 
     @staticmethod

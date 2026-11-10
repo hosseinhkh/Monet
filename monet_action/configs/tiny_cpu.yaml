@@ -21,6 +21,8 @@ action_head:
 train:
   output_dir: runs/tiny_cpu
   mixed_precision: "no"
+  sim_eval_every: 0
+  system_monitor_interval_s: 5
   batch_size: 8
 eval:
   num_parallel_envs: 2

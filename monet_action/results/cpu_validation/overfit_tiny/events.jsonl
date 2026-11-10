@@ -1,0 +1,5 @@
+{"time": 1794272057.8537676, "event": "start", "pid": 6323, "host": "vm"}
+{"time": 1794272060.9514813, "event": "gradient_audit_passed", "step": 0}
+{"time": 1794272106.3336766, "event": "checkpoint", "step": 300, "path": "runs/overfit/ckpt_0000300"}
+{"time": 1794272119.0450253, "event": "checkpoint", "step": 400, "path": "runs/overfit/ckpt_0000400"}
+{"time": 1794272119.0796769, "event": "finished"}

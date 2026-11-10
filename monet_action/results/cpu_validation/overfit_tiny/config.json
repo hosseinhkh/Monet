@@ -43,7 +43,8 @@
   },
   "prompt": {
     "system_prompt": "You are a helpful assistant.",
-    "template": "Robot state: {state}\nTask: {instruction}\nThink in latent space about how to complete the task, then call the action tool.",
+    "template": "Robot state: {state}\n{tool_result}Task: {instruction}\nThink in latent space about how to complete the task, then call the action tool.",
+    "tool_result_template": "Last action tool result: {prev_action}\n",
     "state_placeholder_token": "<|fim_pad|>",
     "num_state_tokens": 2,
     "camera_keys": [
@@ -59,6 +60,13 @@
     "inject_into_monet": true,
     "state_to_action_head": true,
     "dropout": 0.0
+  },
+  "tool_result": {
+    "num_prev_actions": 1,
+    "num_tokens": 1,
+    "placeholder_token": "<|fim_middle|>",
+    "hidden_dim": 512,
+    "dropout": 0.3
   },
   "conditioner": {
     "feature_source": "vl_plus_latents",
@@ -124,9 +132,20 @@
     "val_batches": 50,
     "save_every": 300,
     "keep_last": 3,
+    "keep_every": 10000,
     "init_from": null,
     "gradient_audit_steps": 1,
     "overfit_eval_every": 50,
+    "sim_eval_every": 0,
+    "sim_eval_tasks": [
+      0,
+      5
+    ],
+    "sim_eval_episodes": 4,
+    "sim_eval_init_offset": 40,
+    "latent_retention_weight": 0.0,
+    "system_monitor_interval_s": 5,
+    "tensorboard": false,
     "deterministic": false,
     "compile": false
   },
@@ -148,6 +167,7 @@
     "camera_size": 128,
     "save_videos": 2,
     "intervention": null,
+    "init_state_offset": 0,
     "output_dir": "results/eval",
     "gpu_hourly_cost_usd": null
   }

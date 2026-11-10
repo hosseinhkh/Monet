@@ -11,13 +11,15 @@ records the current upstream HEADs so drift can be detected.
 | NVIDIA Isaac-GR00T N1.7, github.com/NVIDIA/Isaac-GR00T | `7aa0bca50f1097f8b17f5c274c98264b72a1419f` | **design reference only**: `gr00t/model/gr00t_n1d7/gr00t_n1d7.py`, `gr00t/model/modules/dit.py`, `gr00t/model/modules/embodiment_conditioned_mlp.py`, `gr00t/configs/model/gr00t_n1d7.py` were read and re-implemented; no code imported, no weights loaded | Apache-2.0 |
 | LIBERO, github.com/Lifelong-Robot-Learning/LIBERO | `8f1084e3132a39270c3a13ebe37270a43ece2a01` | simulator tasks, BDDL files, fixed init states (installed via `.pth`, see `scripts/setup_env.sh`) | MIT |
 | Dataset, hf.co/datasets/lerobot/libero_spatial_image | `d86c0b94922572b3b657e1d1a3d01f0952ddeb46` | 432 demonstrations / 52,970 frames / 10 tasks, LeRobot v3 parquet, 256x256 agent + wrist RGB, 8D state, 7D action | Apache-2.0 |
+| Raw LIBERO demos, hf.co/datasets/yifengzhu-hf/LIBERO-datasets | `f13aa24a3da8c43c7225569f28c562979fa0e35a` | optional: one libero_spatial hdf5 (recorded MuJoCo states) for the end-to-end demo-replay simulator test only | MIT (LIBERO) |
 | LeRobot LIBERO guide, huggingface.co/docs/lerobot/libero | (docs) | state / image conventions cross-checked against the data and simulator (see AUDIT.md) | - |
 
 ## Validated software (CPU validation container, no GPU)
 
 Python 3.11.18; torch 2.7.1+cpu; torchvision 0.22.1+cpu; transformers 4.54.0; tokenizers 0.21.4;
 peft 0.21.2; accelerate 1.15.0; safetensors 0.8.0; huggingface-hub 0.36.2; numpy 2.2.6; pyarrow 26.0.1;
-mujoco 3.3.2; robosuite 1.4.1; bddl 1.0.1; gym 0.25.2; PyOpenGL 3.1.10 (OSMesa rendering).
+mujoco 3.3.2; robosuite 1.4.1; bddl 1.0.1; gym 0.25.2; PyOpenGL 3.1.10 (OSMesa rendering); h5py 3.16.0;
+dev tools: ruff 0.14.4 (used for lint here); pre-commit 4.3.0 is pinned in dev_requirements.txt but was not exercised here.
 Full lock: `environment/cpu_validation_lock.txt`.
 
 ## GPU server (to be recorded by `scripts/setup_env.sh` + `scripts/audit_upstream.sh`)

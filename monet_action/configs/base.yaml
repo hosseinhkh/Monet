@@ -55,6 +55,15 @@ train:
   val_batches: 50
   save_every: 2000
   mixed_precision: bf16
+  # closed-loop check on development init states (40+) every 5k steps; failures are logged only
+  sim_eval_every: 5000
+  sim_eval_tasks: [0, 5]
+  sim_eval_episodes: 4
+  system_monitor_interval_s: 30
+tool_result:
+  num_prev_actions: 1   # TOOL_RESULT: last executed action encoded before reasoning (proposal sec. 2)
+  num_tokens: 1
+  dropout: 0.3          # hide it for 30% of training samples (copycat mitigation / episode starts)
 eval:
   suite: libero_spatial
   seeds: [0, 1, 2]

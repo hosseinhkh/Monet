@@ -37,7 +37,8 @@ def offline_metrics(policy, loader, max_batches: int = 50, num_steps: int = 4, s
         inputs = batch["monet_inputs"].to(dev)
         state = batch["state"].to(dev)
         with policy._autocast():
-            cond, _ = policy.encode(inputs, state)
+            cond, _ = policy.encode(inputs, state, prev_actions=batch.get("prev_actions"),
+                                    prev_valid=batch.get("prev_valid"))
             pred = policy.action_head.sample(cond.tokens.float(), cond.mask,
                                              state=state if policy.cfg.state.state_to_action_head else None,
                                              num_steps=num_steps, noise=torch.randn(B, H, A, generator=g))
@@ -88,6 +89,18 @@ def mcnemar_exact(a: List[int], b: List[int]) -> float:
 
 
 # --------------------------------------------------------------------------- aggregation
+def with_derived_latency(lat: Dict[str, float]) -> Dict[str, float]:
+    """Leaf components are disjoint (preprocess, monet_embed, monet_prefill, monet_latent_steps,
+    conditioner, action_head); add ``monet`` (sum of monet_*) and ``total`` (sum of leaves)."""
+    leaves = {k: v for k, v in lat.items() if k not in ("total", "monet")}
+    out = dict(leaves)
+    monet = [v for k, v in leaves.items() if k.startswith("monet_")]
+    if monet:
+        out["monet"] = float(sum(monet))
+    out["total"] = float(sum(leaves.values()))
+    return out
+
+
 def aggregate_episodes(records: List[Dict], gpu_hourly_cost_usd: Optional[float] = None) -> Dict:
     """``records``: per-episode dicts written by evaluate.py."""
     out: Dict = {"n_episodes": len(records)}
@@ -114,9 +127,7 @@ def aggregate_episodes(records: List[Dict], gpu_hourly_cost_usd: Optional[float]
     comp_per_sample = defaultdict(list)
     for r in records:
         for lat, bs in zip(r["call_latency_ms"], r["batch_sizes"]):
-            total = sum(lat.values())
-            comp["total"].append(total)
-            comp_per_sample["total"].append(total / bs)
+            lat = with_derived_latency(lat)
             for kk, v in lat.items():
                 comp[kk].append(v)
                 comp_per_sample[kk].append(v / bs)
@@ -129,7 +140,8 @@ def aggregate_episodes(records: List[Dict], gpu_hourly_cost_usd: Optional[float]
     sim = [r["sim_time_ms"] for r in records]
     out["sim_wall_s_per_episode"] = float(np.mean(sim)) / 1000 if sim else float("nan")
     # GPU-seconds: policy compute time attributed to each episode (amortised over the batch)
-    gpu_s = [sum(sum(l.values()) / bs for l, bs in zip(r["call_latency_ms"], r["batch_sizes"])) / 1000 for r in records]
+    gpu_s = [sum(sum(lat.values()) / bs for lat, bs in zip(r["call_latency_ms"], r["batch_sizes"])) / 1000
+             for r in records]
     out["gpu_seconds_per_episode"] = float(np.mean(gpu_s)) if gpu_s else float("nan")
     out["gpu_seconds_total"] = float(np.sum(gpu_s))
     out["gpu_seconds_per_success"] = float(np.sum(gpu_s) / k) if k else float("inf")

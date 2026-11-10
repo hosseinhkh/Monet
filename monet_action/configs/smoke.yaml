@@ -25,3 +25,4 @@ train:
   save_every: 300
   lr_head: 3.0e-4
   lr_state: 3.0e-4
+  sim_eval_every: 0

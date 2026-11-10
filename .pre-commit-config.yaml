@@ -1,0 +1,21 @@
+# Hooks for the Monet-Action package only (upstream Monet code is kept verbatim as a reference).
+#   pip install -r monet_action/environment/dev_requirements.txt && pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.4
+    hooks:
+      - id: ruff
+        args: [--fix, --config, monet_action/pyproject.toml]
+        files: ^monet_action/(src|tests)/
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        files: ^monet_action/
+      - id: end-of-file-fixer
+        files: ^monet_action/(src|tests|configs|scripts)/
+      - id: trailing-whitespace
+        files: ^monet_action/(src|tests|configs|scripts)/
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-merge-conflict

@@ -1,0 +1,8 @@
+_base_: d1_k10.yaml
+name: d1_k20
+variant: D1-K20
+description: K sweep (proposal 2.1, K in {0,5,10,20}). Frozen Monet, K=20 self-fed latent steps; otherwise identical to D1.
+monet:
+  num_latents: 20
+train:
+  output_dir: runs/d1_k20

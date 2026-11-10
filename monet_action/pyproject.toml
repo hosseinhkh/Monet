@@ -21,3 +21,21 @@ markers = [
   "gpu: requires a CUDA GPU and the real Monet-7B checkpoint",
   "slow: slower CPU tests",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["results", "runs", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = [
+  "E501",  # long lines are allowed where they keep tables / tensor contracts readable
+  "E731",  # small lambdas are used for local formatting helpers
+  "B905",  # zip(strict=...) not required (py3.10 baseline)
+  "B008",  # dataclass field(default_factory=...) patterns
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["monet_action"]
+known-local-folder = ["conftest", "test_tool_loop"]

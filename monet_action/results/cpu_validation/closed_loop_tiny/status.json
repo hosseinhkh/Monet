@@ -1,0 +1,21 @@
+{
+  "kind": "eval",
+  "name": "closed_loop_tiny",
+  "variant": "tiny",
+  "state": "finished",
+  "pid": 6649,
+  "host": "vm",
+  "started_at": 1794272124.06636,
+  "updated_at": 1794272150.1566274,
+  "step": 2,
+  "max_steps": null,
+  "error": null,
+  "output_dir": "results/cpu_validation/closed_loop_tiny",
+  "mode": "closed_loop",
+  "episodes_total": 2,
+  "episodes_done": 2,
+  "intervention": null,
+  "execution_prefix": 2,
+  "success_rate": 0.0,
+  "finished_at": 1794272150.1566246
+}

@@ -4,3 +4,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 results/eval/**/videos/
+
+# the repository-root .gitignore ignores every "scripts/" and "logs/" directory; keep ours
+!scripts/
+!results/**/logs/
+.ruff_cache/

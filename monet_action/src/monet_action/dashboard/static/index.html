@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monet-Action Monitor</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Monet-Action <span class="muted">monitor</span></div>
+    <nav class="nav" id="nav" aria-label="Sections">
+      <a href="#/runs" data-nav="runs">Runs</a>
+      <a href="#/evals" data-nav="evals">Evaluations</a>
+      <a href="#/compare" data-nav="compare">Compare</a>
+      <a href="#/audit" data-nav="audit">Audit &amp; reports</a>
+    </nav>
+    <div class="controls">
+      <label class="toggle" title="Re-fetch the current page periodically">
+        <input type="checkbox" id="autoRefresh" checked> Auto-refresh <span id="refreshEvery" class="muted"></span>
+      </label>
+      <button type="button" class="btn ghost" id="refreshNow" title="Refresh now">Refresh</button>
+      <span id="lastUpdated" class="muted small num" aria-live="polite"></span>
+      <a class="btn" id="bundleAll" href="api/bundle/all" title="All runs, evaluations and audit logs as one zip (no checkpoints or videos)">Download all logs</a>
+      <button type="button" class="btn ghost" id="themeToggle" title="Theme">Theme: auto</button>
+    </div>
+  </header>
+  <div id="banner" class="banner hidden" role="alert"></div>
+  <main id="app"></main>
+  <div id="tooltip" class="tooltip hidden" role="status"></div>
+  <script src="static/app.js"></script>
+</body>
+</html>

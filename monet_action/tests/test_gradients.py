@@ -2,12 +2,12 @@
 import pytest
 import torch
 
-from conftest import INSTR, build_inputs, random_views
 from monet_action.config import load_config
 from monet_action.monet_backbone import MonetLatentReasoner
 from monet_action.monet_loader import build_tiny_monet
-from monet_action.normalization import ActionStateNormalizer
 from monet_action.policy import MonetActionPolicy
+
+from conftest import INSTR, build_inputs, random_views
 
 pytestmark = pytest.mark.tokenizer
 
@@ -85,7 +85,7 @@ def test_bptt_vs_truncated_feedback(tiny_model, processor, cfg):
 def test_frozen_variant_trains_only_head_and_projector(cfg_path, processor):
     pol, _ = _policy(cfg_path, processor)
     trainable = {n.split(".")[0] for n, p in pol.named_parameters() if p.requires_grad}
-    assert trainable == {"state_projector", "conditioner", "action_head"}
+    assert trainable == {"state_projector", "tool_result_projector", "conditioner", "action_head"}
 
 
 def test_d0_and_d1_have_identical_trainable_capacity(cfg_path, processor):

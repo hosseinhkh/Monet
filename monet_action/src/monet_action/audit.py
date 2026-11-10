@@ -180,15 +180,14 @@ def audit_data(cfg, data_root=None) -> Dict:
 
 
 def audit_sim(cfg, data_root=None) -> Dict:
-    import io
 
     from .libero_dataset import LeRobotLiberoFrames
-    from .libero_env import LIBERO_DUMMY_ACTION, LiberoEnv, libero_task_table
+    from .libero_env import LiberoEnv, libero_task_table
 
     frames = LeRobotLiberoFrames(data_root or cfg.data.root, file_limit=1)
     e0 = frames.episodes[0]
     table = libero_task_table(cfg.eval.suite)
-    tid = [t for t, _, l in table if l == e0.instruction][0]
+    tid = [t for t, _, lang in table if lang == e0.instruction][0]
     env = LiberoEnv(cfg.eval.suite, tid, cfg.eval.camera_size, 0)
     t0 = time.time()
     obs = env.reset(0, cfg.eval.num_wait_steps)

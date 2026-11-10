@@ -10,8 +10,10 @@ Several environments can be advanced in lock-step so that policy calls are batch
 """
 from __future__ import annotations
 
+import dataclasses
 import time
-from dataclasses import asdict, dataclass, field
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
 import numpy as np
@@ -115,18 +117,56 @@ class EpisodeRecord:
     batch_sizes: List[int]
     trace: List[Dict[str, Any]]
     frames: Optional[List[np.ndarray]] = None
+    failure_tags: List[str] = field(default_factory=list)
+
+
+def auto_failure_tags(rec: "EpisodeRecord", max_steps: int) -> List[str]:
+    """Heuristic hints for the failure taxonomy (target localisation / gripper timing / wrong
+    action frame / stalling / oscillation / latency). They only *suggest* where to look in the
+    videos; they are not ground truth and are never used by the policy."""
+    if rec.success:
+        return []
+    tags = []
+    if rec.env_steps >= max_steps:
+        tags.append("timeout")
+    acts = np.array([a for c in rec.trace for a in c["applied"]], dtype=np.float32).reshape(-1, 7)
+    pos = np.array([c["state_after"][:3] for c in rec.trace], dtype=np.float32).reshape(-1, 3)
+    if len(acts) == 0:
+        return tags + ["no_actions"]
+    grip = np.sign(acts[:, 6])
+    if not (grip > 0).any():
+        tags.append("never_closed_gripper")
+    toggles = int((np.diff(grip) != 0).sum())
+    if toggles >= 6:
+        tags.append("gripper_chatter")
+    closed_idx = np.flatnonzero(grip > 0)
+    if len(closed_idx) and (grip[closed_idx[0]:] < 0).any():
+        tags.append("released_after_grasp")
+    steps_per_call = max(1, rec.env_steps // max(1, len(rec.trace)))
+    tail = max(2, 40 // steps_per_call)
+    if len(pos) > tail and float(np.linalg.norm(pos[-1] - pos[-tail])) < 0.01:
+        tags.append("stalled")
+    xyz = acts[:, :3]
+    if len(xyz) > 4:
+        dots = (xyz[1:] * xyz[:-1]).sum(1)
+        norms = np.linalg.norm(xyz[1:], axis=1) * np.linalg.norm(xyz[:-1], axis=1)
+        reversals = float(((dots < 0) & (norms > 1e-3)).mean())
+        if reversals > 0.3:
+            tags.append("oscillation")
+    return tags
 
 
 def run_episodes_lockstep(envs: List[StepEnv], init_idxs: List[int], tool: ActionTool, *, max_steps: int,
                           execution_prefix: int, num_integration_steps: int, num_wait_steps: int = 10,
                           record_frames: Optional[List[bool]] = None, task_ids: Optional[List[int]] = None,
-                          seed: int = 0, trace_every_call: bool = True,
+                          seed: int = 0, trace_every_call: bool = True, history_len: int = 8,
                           on_call: Optional[Callable[[int, List[CallActionResponse]], None]] = None) -> List[EpisodeRecord]:
     """Run one episode per env, batching CALL_ACTION across the envs that are still active."""
     n = len(envs)
     task_ids = task_ids or [-1] * n
     record_frames = record_frames or [False] * n
     obs: List[PolicyObservation] = []
+    hist = [deque(maxlen=max(1, history_len)) for _ in range(n)]  # executed actions (TOOL_RESULT)
     t0 = time.perf_counter()
     for e, idx in zip(envs, init_idxs):
         obs.append(e.reset(idx, num_wait_steps))
@@ -152,8 +192,10 @@ def run_episodes_lockstep(envs: List[StepEnv], init_idxs: List[int], tool: Actio
                 st = envs[i].step(a)
                 sim_ms += (time.perf_counter() - ts) * 1000.0
                 applied.append(a)
+                hist[i].append(np.asarray(a, np.float32))
                 rec.env_steps += 1
-                obs[i] = st.observation
+                # TOOL_RESULT -> next context: fresh observation + the actions just executed
+                obs[i] = dataclasses.replace(st.observation, prev_actions=np.stack(hist[i]))
                 reward, done = st.reward, st.done
                 if record_frames[i]:
                     rec.frames.append(st.observation.images["image"].copy())
@@ -172,4 +214,6 @@ def run_episodes_lockstep(envs: List[StepEnv], init_idxs: List[int], tool: Actio
             elif rec.env_steps < max_steps:
                 still.append(i)
         active = still
+    for r in recs:
+        r.failure_tags = auto_failure_tags(r, max_steps)
     return recs

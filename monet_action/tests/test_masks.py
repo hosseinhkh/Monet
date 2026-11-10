@@ -3,8 +3,14 @@ import numpy as np
 import pytest
 import torch
 
-from monet_action.conditioning import (TOKEN_LATENT, TOKEN_NULL, TOKEN_VL, LatentBank, LatentToActionConditioner,
-                                       apply_latent_intervention)
+from monet_action.conditioning import (
+    TOKEN_LATENT,
+    TOKEN_NULL,
+    TOKEN_VL,
+    LatentBank,
+    LatentToActionConditioner,
+    apply_latent_intervention,
+)
 from monet_action.config import ConditionerConfig
 from monet_action.dit_action import FlowMatchingDiT
 

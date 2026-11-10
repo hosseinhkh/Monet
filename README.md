@@ -1,3 +1,10 @@
+> **This fork: Monet-Action (robot control with Monet latent reasoning).** All new development lives in
+> [`monet_action/`](monet_action/README.md): a Monet-7B latent-reasoning backbone with a flow-matching DiT action
+> tool, LIBERO-Spatial training/evaluation, tests, monitoring dashboard and docs (start with
+> [`monet_action/README.md`](monet_action/README.md) and [`monet_action/DEVELOPMENT.md`](monet_action/DEVELOPMENT.md)).
+> The upstream Monet code below is kept unchanged at commit `08939998` and serves as the reference
+> implementation; a review of it is in [`monet_action/docs/UPSTREAM_CODE_REVIEW.md`](monet_action/docs/UPSTREAM_CODE_REVIEW.md).
+
 <p align="center">
   <h1 align="center">[CVPR 2026] Monet: Reasoning in Latent Visual Space Beyond Images and Language</h1>
   <p align="center">

@@ -1,0 +1,43 @@
+# CPU test suite for monet_action. Manual trigger only (no automatic runs / minutes consumed).
+name: monet-action CPU tests
+on:
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: monet_action
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: System libraries for OSMesa rendering
+        run: sudo apt-get update && sudo apt-get install -y libosmesa6 libegl1 libgl1
+      - name: Python dependencies (CPU torch)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.7.1+cpu" "torchvision==0.22.1+cpu"
+          pip install -r environment/train_requirements.txt -r environment/sim_requirements.txt -r environment/dev_requirements.txt
+          git clone https://github.com/Lifelong-Robot-Learning/LIBERO /tmp/LIBERO && git -C /tmp/LIBERO checkout 8f1084e3132a39270c3a13ebe37270a43ece2a01
+          echo "/tmp/LIBERO" > "$(python -c 'import site; print(site.getsitepackages()[0])')/libero_src.pth"
+          mkdir -p ~/.libero && R=/tmp/LIBERO/libero/libero && printf "benchmark_root: $R\nbddl_files: $R/bddl_files\ninit_states: $R/init_files\ndatasets: /tmp/ds\nassets: $R/assets\n" > ~/.libero/config.yaml
+      - name: Tokenizer files + one dataset shard (no model weights)
+        run: |
+          python - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download("NOVAglow646/Monet-7B", revision="39c1e320a3e15c357bff911fda263923edbdda37",
+                            allow_patterns=["*.json", "merges.txt", "vocab.json"], local_dir="hf/Monet-7B-tokenizer")
+          snapshot_download("lerobot/libero_spatial_image", repo_type="dataset", revision="d86c0b94922572b3b657e1d1a3d01f0952ddeb46",
+                            allow_patterns=["meta/*", "meta/**", "data/chunk-000/file-000.parquet"], local_dir="data/libero_spatial_image")
+          PY
+      - name: Lint
+        run: python -m ruff check src tests
+      - name: Tests
+        env:
+          MONET_TOKENIZER_PATH: hf/Monet-7B-tokenizer
+          MUJOCO_GL: osmesa
+          PYOPENGL_PLATFORM: osmesa
+          PYTHONPATH: src
+        run: python -m pytest -q -rs tests

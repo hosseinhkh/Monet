@@ -1,0 +1,3 @@
+# Developer tools (lint / hooks); not needed to train or evaluate.
+ruff==0.14.4
+pre-commit==4.3.0

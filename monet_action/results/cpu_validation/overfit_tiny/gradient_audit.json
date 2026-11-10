@@ -2,25 +2,25 @@
   "step": 0,
   "report": {
     "action_head": {
-      "grad_norm": 1.9721737282068559,
+      "grad_norm": 1.9199837137539142,
       "finite": true,
       "n_tensors": 51,
       "n_tensors_nonzero_grad": 51
     },
     "conditioner": {
-      "grad_norm": 0.2294117861902602,
+      "grad_norm": 0.17476395847265236,
       "finite": true,
       "n_tensors": 11,
       "n_tensors_nonzero_grad": 11
     },
     "conditioner_latent_proj": {
-      "grad_norm": 0.06567387199380294,
+      "grad_norm": 0.04866664572173596,
       "finite": true,
       "n_tensors": 2,
       "n_tensors_nonzero_grad": 2
     },
     "state_projector": {
-      "grad_norm": 0.02108926275789314,
+      "grad_norm": 0.014319031256144032,
       "finite": true,
       "n_tensors": 6,
       "n_tensors_nonzero_grad": 6

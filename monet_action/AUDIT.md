@@ -84,9 +84,21 @@ therefore re-implement the contract at a compact size and train from scratch.
 | Episodes | 432 successful demos (failed replays and no-op actions removed upstream); frames contiguous per episode; windows never cross episodes (last action repeated, loss-masked) | `test_no_cross_episode_leakage_and_horizon_padding` |
 | Reset | `env.reset()` -> `set_init_state(init_states[i])` -> 10 no-op steps `[0,0,0,0,0,0,-1]` (not counted) | `LiberoEnv.reset` |
 | Init-state files | numpy pickles; torch>=2.6 needs `weights_only=False` (trusted, pinned upstream files) | `LiberoEnv.__init__` |
-| Privileged data | `PolicyObservation` has only images, state, instruction; success flags live in `diagnostics` | `test_policy_observation_has_no_oracle_fields` |
+| Privileged data | `PolicyObservation` has only images, state, instruction and the agent's own previously executed actions (TOOL_RESULT); success flags live in `diagnostics` | `test_policy_observation_has_no_oracle_fields` |
+| End-to-end action convention | raw LIBERO demos (hdf5 with recorded MuJoCo states) replayed in our robosuite 1.4.1 / MuJoCo 3.3.2 build solve the task: demos 0-3 of task 0 succeed at steps 82/73/77/79; our 8D state matches the recorded `ee_states` (within 3 mm and 0.01 rad on demos 0-3, measured right after `set_init_state`) | `test_recorded_demo_replays_to_success`, `test_state_conversion_matches_raw_demo` |
+| Reset rendering (finding + fix) | LIBERO hard-resets (reloads the scene XML) on every `reset()` and re-samples fixture textures (stove, cabinet) from the *global* `random`/`numpy` RNGs: the same init state gave bit-identical MuJoCo state but 12-16% different pixels across resets, i.e. "matched" episodes were not visually matched across variants. `LiberoEnv.reset` now seeds those RNGs from (task, init state) and restores them; observations are pixel-identical | `test_reset_is_deterministic_and_init_states_differ` |
+| Final vs development init states | final reporting uses benchmark init states 0..29 (3 seeds x 10); smoke rollouts, in-training sim checks and the D3 swap bank use 30..49 only | `test_final_and_development_init_states_are_disjoint` |
 
-## 4. Gate status
+## 4. Repository findings
+
+* The upstream root `.gitignore` ignores every directory named `scripts/` (and `logs/`). The first push
+  of this branch therefore **silently omitted `monet_action/scripts/`**. Fixed by re-including the
+  directory in `monet_action/.gitignore`; `tests/test_repo_hygiene.py` now fails if an essential file
+  is ignored.
+* Upstream junk removed: `transformers/.DS_Store`, the only file in that directory. The full upstream
+  review is in `docs/UPSTREAM_CODE_REVIEW.md`.
+
+## 5. Gate status
 
 | Gate item | Status |
 |---|---|

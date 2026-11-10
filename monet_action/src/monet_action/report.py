@@ -10,13 +10,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict
 
 from .evaluate import compare
 from .metrics import markdown_table
 
 PRINCIPAL = ["d0_k0", "d1_k10", "d2_lora"]
-CONTROLS = ["d4_query", "d5_mlp", "d1_latents_only"]
+CONTROLS = ["d4_query", "d5_mlp", "d1_latents_only", "d1_no_toolresult", "d1_k5", "d1_k20"]
 
 
 def _load(p: Path):
@@ -27,7 +26,7 @@ def build_report(eval_dir: str) -> str:
     root = Path(eval_dir)
     runs = {p.name: p for p in sorted(root.iterdir()) if (p / "summary.json").exists()} if root.exists() else {}
     S = {k: _load(p / "summary.json") for k, p in runs.items()}
-    L = [f"# Monet-Action Phase 1 results", "", f"Source: `{root}`. Paused-simulator LIBERO-Spatial task success; "
+    L = ["# Monet-Action Phase 1 results", "", f"Source: `{root}`. Paused-simulator LIBERO-Spatial task success; "
          "no real-time or physical-safety claim.", ""]
     if not runs:
         return "\n".join(L + ["No evaluation outputs found (not run)."])
@@ -63,6 +62,27 @@ def build_report(eval_dir: str) -> str:
         L.append("not run")
     L.append("")
 
+    L += ["## 4b. K sweep (frozen Monet; K=0 is D0)", "", "| K | run | success | 95% CI | monet p50 ms | GPU-s / success |",
+          "|---|---|---|---|---|---|"]
+    ks = [(0, "d0_k0"), (5, "d1_k5"), (10, "d1_k10"), (20, "d1_k20")]
+    if any(k in S for _, k in ks):
+        for K, k in ks:
+            if k in S:
+                s_ = S[k]
+                mon = s_.get("latency_ms_per_call", {}).get("monet", {}).get("p50", float("nan"))
+                L.append(f"| {K} | {k} | {s_['success_rate']:.3f} | [{s_['success_ci95'][0]:.3f}, {s_['success_ci95'][1]:.3f}] "
+                         f"| {mon:.1f} | {s_['gpu_seconds_per_success']:.2f} |")
+    else:
+        L.append("| not run | | | | | |")
+    L += ["", "## 4c. Automatic failure-tag counts (heuristic hints; confirm on videos)", ""]
+    tagged = {k: s_.get("failure_tag_counts") for k, s_ in S.items() if s_.get("failure_tag_counts")}
+    if tagged:
+        L += ["| run | tags |", "|---|---|"] + [f"| {k} | {', '.join(f'{t}: {n}' for t, n in v.items())} |"
+                                              for k, v in tagged.items()]
+    else:
+        L.append("no failures tagged / not run")
+    L.append("")
+
     L += ["## 5. Execution prefix and solver steps", ""]
     extra = {k: S[k] for k in S if k.endswith("_E2") or "_steps" in k}
     L += [markdown_table(extra) if extra else "not run", ""]
@@ -89,7 +109,7 @@ def build_report(eval_dir: str) -> str:
         if lat:
             any_lat = True
             for st, prof in lat["profile"].items():
-                f = lambda c: f"{prof.get(c, {}).get('p50', float('nan')):.1f} / {prof.get(c, {}).get('p95', float('nan')):.1f}"  # noqa: E731
+                f = lambda c, prof=prof: f"{prof.get(c, {}).get('p50', float('nan')):.1f} / {prof.get(c, {}).get('p95', float('nan')):.1f}"
                 L.append(f"| {k} | {lat['K']} | {st.split('_')[-1]} | {f('monet')} | {f('action_head')} | {f('total')} | "
                          f"{prof.get('peak_mem_gb', float('nan')):.1f} |")
     if not any_lat:

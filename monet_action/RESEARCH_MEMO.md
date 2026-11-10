@@ -30,6 +30,12 @@ latent steps (K=0)? Secondary question: is any gain worth its extra GPU time and
   With two primary contrasts, use Holm correction at α=0.05.
 * **Secondary contrasts.** D2 vs D1 (effect of LoRA) and D1 vs D4 (self-feedback vs matched compute),
   each with the same statistics.
+* **Exploratory.**
+  * K sweep {0, 5, 10, 20} (frozen Monet): report success and latency vs K. No multiplicity claims.
+  * Latents-only conditioning.
+  * TOOL_RESULT without the previous action (`d1_no_toolresult`). This checks whether the
+    action-history input helps or causes copycat behaviour.
+  * Bypass diagnostics on D2: `mask_vl` (latents only at test time) and `mask_all` (unconditioned head).
 * **Effect size of interest.** A difference of at least +5 percentage points with a CI excluding 0. With
   300 paired episodes per variant, smaller effects may not be resolvable; say so explicitly rather than
   claiming "no effect".

@@ -32,7 +32,15 @@ import numpy as np
 import torch
 
 from .config import EvalConfig
-from .metrics import aggregate_episodes, bootstrap_diff_ci, markdown_table, mcnemar_exact, offline_metrics
+from .logging_utils import RunMonitor, get_logger
+from .metrics import (
+    aggregate_episodes,
+    bootstrap_diff_ci,
+    markdown_table,
+    mcnemar_exact,
+    offline_metrics,
+    with_derived_latency,
+)
 from .profiling import peak_memory_gb, percentiles, reset_peak_memory
 from .tool_runtime import ActionTool, run_episodes_lockstep
 from .utils import append_jsonl, environment_report, write_json
@@ -45,7 +53,7 @@ def _eval_cfg(cfg, args) -> EvalConfig:
 
         ec = load_config(args.eval_config).eval
     for k in ("seeds", "task_ids", "episodes_per_task", "execution_prefix", "num_inference_steps",
-              "num_parallel_envs", "intervention", "output_dir", "max_steps", "save_videos"):
+              "num_parallel_envs", "intervention", "output_dir", "max_steps", "save_videos", "init_state_offset"):
         v = getattr(args, k, None)
         if v is not None:
             setattr(ec, k, v)
@@ -68,16 +76,37 @@ def warm_latent_bank(policy, ec: EvalConfig, task_ids: List[int]) -> None:
 
     for t in task_ids:
         env = LiberoEnv(ec.suite, t, ec.camera_size, 0)
-        obs = env.reset(len(env.init_states) - 1, ec.num_wait_steps)  # init state not used in eval blocks
+        obs = env.reset(len(env.init_states) - 1, ec.num_wait_steps)  # dev block (49), never a final-eval state
         pred = policy.predict([obs], num_steps=1)
         policy.latent_bank.add(pred.latents, [t])
         env.close()
 
 
-def closed_loop(policy, cfg, ec: EvalConfig, out_dir: Path, tag: str = "") -> Dict:
+def init_state_indices(ec: EvalConfig, seed_index: int) -> List[int]:
+    """Benchmark init states for one (seed, task): matched across variants. Final reporting uses
+    0..29 (3 seeds x 10 episodes, ``seed_offset``); development rollouts set init_state_offset>=30."""
+    base = ec.init_state_offset + (seed_index * ec.episodes_per_task if ec.init_state_policy == "seed_offset" else 0)
+    return [base + e for e in range(ec.episodes_per_task)]
+
+
+def closed_loop(policy, cfg, ec: EvalConfig, out_dir: Path, tag: str = "", monitor: bool = True) -> Dict:
+    """Closed-loop LIBERO evaluation. With ``monitor`` the eval dir gets status.json, events.jsonl,
+    system.jsonl and logs/eval.log (dashboard contract); resumable via episodes.jsonl."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if not monitor:
+        return _closed_loop(policy, cfg, ec, out_dir, tag, None)
+    total = len(ec.seeds) * (len(ec.task_ids) if ec.task_ids is not None else 10) * ec.episodes_per_task
+    mon = RunMonitor(out_dir, kind="eval", name=out_dir.name, variant=cfg.variant,
+                     extra={"mode": "closed_loop", "episodes_total": total, "episodes_done": 0,
+                            "intervention": ec.intervention, "execution_prefix": ec.execution_prefix})
+    with mon:
+        return _closed_loop(policy, cfg, ec, out_dir, tag, mon)
+
+
+def _closed_loop(policy, cfg, ec: EvalConfig, out_dir: Path, tag: str, mon: Optional[RunMonitor]) -> Dict:
     from .libero_env import LiberoEnv, libero_task_table
 
-    out_dir.mkdir(parents=True, exist_ok=True)
+    log = mon.logger if mon is not None else get_logger("monet_action.eval")
     table = libero_task_table(ec.suite)
     task_ids = ec.task_ids if ec.task_ids is not None else [t for t, _, _ in table]
     steps = ec.num_inference_steps or cfg.action_head.num_inference_steps
@@ -90,50 +119,70 @@ def closed_loop(policy, cfg, ec: EvalConfig, out_dir: Path, tag: str = "") -> Di
     done_keys = set()
     if ep_file.exists():  # resumable evaluation
         for line in ep_file.read_text().splitlines():
-            r = json.loads(line)
-            done_keys.add((r["seed"], r["task_id"], r["init_state_idx"]))
+            if line.strip():
+                r = json.loads(line)
+                done_keys.add((r["seed"], r["task_id"], r["init_state_idx"]))
+    n_done = len(done_keys)
+    if mon is not None:
+        mon.update(episodes_done=n_done)
     reset_peak_memory()
-    E = ec.episodes_per_task
     for si, seed in enumerate(ec.seeds):
         for t in task_ids:
-            base = si * E if ec.init_state_policy == "seed_offset" else 0
-            idxs = [base + e for e in range(E) if (seed, t, base + e) not in done_keys]
+            idxs = [i for i in init_state_indices(ec, si) if (seed, t, i) not in done_keys]
             if not idxs:
                 continue
             P = max(1, min(ec.num_parallel_envs, len(idxs)))
             envs = [LiberoEnv(ec.suite, t, ec.camera_size, seed) for _ in range(P)]
-            for c0 in range(0, len(idxs), P):
-                chunk = idxs[c0:c0 + P]
-                g = torch.Generator().manual_seed(  # CPU generator: noise is drawn on CPU then moved
-                    seed * 1_000_003 + t * 1009 + c0)
-                tool = ActionTool(policy, cfg.action_head.action_horizon, generator=g, intervention=ec.intervention)
-                rec_frames = [(c0 + j) < ec.save_videos for j in range(len(chunk))]
-                t0 = time.time()
-                recs = run_episodes_lockstep(envs[:len(chunk)], chunk, tool, max_steps=ec.max_steps,
-                                             execution_prefix=ec.execution_prefix, num_integration_steps=steps,
-                                             num_wait_steps=ec.num_wait_steps, record_frames=rec_frames,
-                                             task_ids=[t] * len(chunk), seed=seed)
-                for r in recs:
-                    row = {k: v for k, v in r.__dict__.items() if k not in ("frames", "trace")}
-                    row["wall_s"] = (time.time() - t0) / len(chunk)
-                    append_jsonl(ep_file, row)
-                    append_jsonl(out_dir / "traces" / f"seed{seed}_task{t}_init{r.init_state_idx}.jsonl",
-                                 {"episode": row, "trace": r.trace})
-                    if r.frames:
-                        status = "success" if r.success else "failure"
-                        _save_video(r.frames, out_dir / "videos" / f"seed{seed}_task{t}_init{r.init_state_idx}_{status}.mp4")
-                print(f"[eval{tag}] seed {seed} task {t} init {chunk}: "
-                      f"{sum(r.success for r in recs)}/{len(recs)} success", flush=True)
-            for e in envs:
-                e.close()
-    records = [json.loads(l) for l in ep_file.read_text().splitlines()]
+            try:
+                for c0 in range(0, len(idxs), P):
+                    chunk = idxs[c0:c0 + P]
+                    g = torch.Generator().manual_seed(  # CPU generator: noise is drawn on CPU then moved
+                        seed * 1_000_003 + t * 1009 + c0)
+                    tool = ActionTool(policy, cfg.action_head.action_horizon, generator=g, intervention=ec.intervention)
+                    rec_frames = [(c0 + j) < ec.save_videos for j in range(len(chunk))]
+                    t0 = time.time()
+                    recs = run_episodes_lockstep(envs[:len(chunk)], chunk, tool, max_steps=ec.max_steps,
+                                                 execution_prefix=ec.execution_prefix, num_integration_steps=steps,
+                                                 num_wait_steps=ec.num_wait_steps, record_frames=rec_frames,
+                                                 task_ids=[t] * len(chunk), seed=seed)
+                    for r in recs:
+                        row = {k: v for k, v in r.__dict__.items() if k not in ("frames", "trace")}
+                        row["wall_s"] = (time.time() - t0) / len(chunk)
+                        append_jsonl(ep_file, row)
+                        append_jsonl(out_dir / "traces" / f"seed{seed}_task{t}_init{r.init_state_idx}.jsonl",
+                                     {"episode": row, "trace": r.trace})
+                        if r.frames:
+                            status = "success" if r.success else "failure"
+                            _save_video(r.frames, out_dir / "videos" / f"seed{seed}_task{t}_init{r.init_state_idx}_{status}.mp4")
+                    n_done += len(recs)
+                    k = sum(r.success for r in recs)
+                    log.info("[eval%s] seed %d task %d init %s: %d/%d success (%.0fs)", tag, seed, t, chunk, k,
+                             len(recs), time.time() - t0)
+                    if mon is not None:
+                        mon.update(episodes_done=n_done, step=n_done)
+                        mon.event("episodes", seed=seed, task_id=t, init_states=chunk, successes=k, n=len(recs))
+            finally:
+                for e in envs:
+                    e.close()
+    records = [json.loads(line) for line in ep_file.read_text().splitlines() if line.strip()]
     summary = aggregate_episodes(records, ec.gpu_hourly_cost_usd)
     summary.update({"num_inference_steps": steps, "execution_prefix": ec.execution_prefix,
                     "intervention": ec.intervention, "gpu_peak_mem_gb": peak_memory_gb(),
                     "task_names": {t: n for t, n, _ in table}, "tag": tag,
+                    "failure_tag_counts": _tag_counts(records),
                     "note": "paused-simulator task success; not a real-time or physical-safety claim"})
     write_json(out_dir / "summary.json", summary)
+    if mon is not None:
+        mon.update(success_rate=summary["success_rate"])
     return summary
+
+
+def _tag_counts(records: List[Dict]) -> Dict[str, int]:
+    c: Dict[str, int] = {}
+    for r in records:
+        for t in r.get("failure_tags", []) or []:
+            c[t] = c.get(t, 0) + 1
+    return dict(sorted(c.items(), key=lambda kv: -kv[1]))
 
 
 @torch.no_grad()
@@ -154,9 +203,8 @@ def latency_profile(policy, cfg, steps_list: List[int], n_calls: int = 50, batch
         comp: Dict[str, List[float]] = {}
         for _ in range(n_calls):
             p = policy.predict(obs, num_steps=steps)
-            for k, v in p.timings_ms.items():
+            for k, v in with_derived_latency(p.timings_ms).items():
                 comp.setdefault(k, []).append(v)
-            comp.setdefault("total", []).append(sum(p.timings_ms.values()))
         out[f"steps_{steps}"] = {k: percentiles(v) for k, v in comp.items()} | {"peak_mem_gb": peak_memory_gb()}
     return {"K": cfg.monet.num_latents, "batch_size": batch_size, "device": str(policy.device), "profile": out}
 
@@ -212,6 +260,7 @@ def main(argv=None) -> None:
             s.add_argument("--max-steps", dest="max_steps", type=int, default=None)
             s.add_argument("--save-videos", dest="save_videos", type=int, default=None)
             s.add_argument("--intervention", default=None)
+            s.add_argument("--init-state-offset", dest="init_state_offset", type=int, default=None)
         else:
             s.add_argument("--steps", type=int, nargs="*", default=[2, 4, 8])
             s.add_argument("--max-batches", type=int, default=100)
@@ -246,7 +295,8 @@ def main(argv=None) -> None:
             val_eps = [e for e in frames.episodes if e.episode_index in set(split["val_episodes"])]
         else:
             _, val_eps = split_episodes(frames.episodes, cfg.data.val_fraction, cfg.data.split_seed)
-        ds = LiberoWindowDataset(frames, val_eps, cfg.action_head.action_horizon)
+        ds = LiberoWindowDataset(frames, val_eps, cfg.action_head.action_horizon,
+                                 num_prev_actions=cfg.tool_result.num_prev_actions)
         dl = DataLoader(ds, batch_size=cfg.train.batch_size, shuffle=False,
                         collate_fn=Collator(policy.prompt_builder, policy.normalizer), num_workers=cfg.data.num_workers)
         if len(ds) == 0:

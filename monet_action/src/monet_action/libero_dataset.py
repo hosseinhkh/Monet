@@ -10,6 +10,9 @@ Sample at frame t of an episode of length T:
     state       8D proprioception at t
     actions     a[t : t+H]  (H = action horizon), padded by repeating a[T-1]
     loss_mask   1 for t+h < T, 0 for padded steps (never crosses an episode boundary)
+    prev_actions a[t-n : t] (TOOL_RESULT context: what was executed just before t), with
+                prev_valid = 0 for indices before the episode start (zero-filled, never from
+                the previous episode)
 Splits are episode-disjoint and stratified by task; normalisation statistics are fit on the
 training split only.
 """
@@ -19,7 +22,6 @@ import glob
 import io
 import json
 import math
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -144,8 +146,9 @@ def split_episodes(episodes: List[EpisodeInfo], val_fraction: float, seed: int) 
 
 class LiberoWindowDataset(Dataset):
     def __init__(self, frames: LeRobotLiberoFrames, episodes: List[EpisodeInfo], horizon: int,
-                 max_windows: Optional[int] = None):
+                 max_windows: Optional[int] = None, num_prev_actions: int = 0):
         self.frames, self.episodes, self.H = frames, episodes, horizon
+        self.n_prev = num_prev_actions
         idx = []
         for k, e in enumerate(episodes):
             for t in range(e.length):
@@ -163,7 +166,14 @@ class LiberoWindowDataset(Dataset):
         rows = e.start + np.minimum(np.arange(t, t + self.H), e.length - 1)  # clamp inside the episode
         mask = (np.arange(t, t + self.H) < e.length).astype(np.float32)
         row = e.start + t
+        n = self.n_prev
+        prev_idx = np.arange(t - n, t)
+        prev_valid = (prev_idx >= 0).astype(np.float32)
+        prev = self.frames.action[e.start + np.clip(prev_idx, 0, None)].copy() if n else np.zeros((0, 7), np.float32)
+        prev[prev_valid == 0] = 0.0
         return {
+            "prev_actions": prev,
+            "prev_valid": prev_valid,
             "images": [self.frames.image(c, row) for c in self.frames.camera_keys],
             "state": self.frames.state[row].copy(),
             "actions": self.frames.action[rows].copy(),
@@ -208,8 +218,14 @@ class Collator:
         inputs = self.pb.build(views, [s["instruction"] for s in samples])
         state = torch.from_numpy(np.stack([s["state"] for s in samples]))
         actions = torch.from_numpy(np.stack([s["actions"] for s in samples]))
+        prev = torch.from_numpy(np.stack([s["prev_actions"] for s in samples]))
+        prev_valid = torch.from_numpy(np.stack([s["prev_valid"] for s in samples]))
+        if prev.shape[1] > 0:
+            prev = self.norm.action.normalize(prev).float() * prev_valid.unsqueeze(-1)
         return {
             "monet_inputs": inputs,
+            "prev_actions": prev.float(),
+            "prev_valid": prev_valid.float(),
             "state": self.norm.state.normalize(state).float(),
             "actions": self.norm.action.normalize(actions).float(),
             "raw_actions": actions,
@@ -220,12 +236,13 @@ class Collator:
         }
 
 
-def build_datasets(data_cfg, horizon: int):
+def build_datasets(data_cfg, horizon: int, num_prev_actions: int = 0):
     frames = LeRobotLiberoFrames(data_cfg.root, file_limit=data_cfg.file_limit, task_indices=data_cfg.task_indices,
                                  max_episodes_per_task=data_cfg.max_episodes_per_task)
     train_eps, val_eps = split_episodes(frames.episodes, data_cfg.val_fraction, data_cfg.split_seed)
-    train = LiberoWindowDataset(frames, train_eps, horizon, max_windows=data_cfg.max_windows)
-    val = LiberoWindowDataset(frames, val_eps, horizon)
+    train = LiberoWindowDataset(frames, train_eps, horizon, max_windows=data_cfg.max_windows,
+                                num_prev_actions=num_prev_actions)
+    val = LiberoWindowDataset(frames, val_eps, horizon, num_prev_actions=num_prev_actions)
     a, s = LiberoWindowDataset(frames, train_eps, horizon).all_train_arrays()
     normalizer = ActionStateNormalizer.fit(a, s, data_cfg.action_norm, data_cfg.state_norm)
     split = {"train_episodes": [e.episode_index for e in train_eps], "val_episodes": [e.episode_index for e in val_eps]}

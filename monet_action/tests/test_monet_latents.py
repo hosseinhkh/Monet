@@ -6,8 +6,9 @@ random configuration; they validate the mechanism, not Monet-7B's weights (that 
 import pytest
 import torch
 
-from conftest import build_inputs
 from monet_action.monet_backbone import MonetLatentReasoner, authors_latent_mode_reference, vllm_runner_emulation
+
+from conftest import build_inputs
 
 pytestmark = pytest.mark.tokenizer
 ATOL = 2e-5

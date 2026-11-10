@@ -1,0 +1,23 @@
+{
+  "kind": "train",
+  "name": "tiny_cpu",
+  "variant": "tiny",
+  "state": "finished",
+  "pid": 6323,
+  "host": "vm",
+  "started_at": 1794272057.8535302,
+  "updated_at": 1794272119.0790582,
+  "step": 400,
+  "max_steps": 400,
+  "error": null,
+  "output_dir": "runs/overfit",
+  "device": "cpu",
+  "num_latents": 10,
+  "lora": false,
+  "samples": 3200,
+  "last_loss": 0.15938951075077057,
+  "eta_s": 0.0,
+  "step_time_s": 0.12003344535827637,
+  "peak_mem_gb": NaN,
+  "finished_at": 1794272119.0790567
+}

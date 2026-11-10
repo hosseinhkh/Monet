@@ -6,13 +6,17 @@ Sequence for one sample (left padded in a batch), Qwen2.5-VL chat format:
   <|im_start|>user\n
     <|vision_start|><|image_pad|>*n<|vision_end|>      (agent view)
     <|vision_start|><|image_pad|>*n<|vision_end|>      (wrist view)
-    Robot state: <|fim_pad|>*S\nTask: {instruction}\n...<|im_end|>\n
+    Robot state: <|fim_pad|>*S\n
+    Last action tool result: <|fim_middle|>*T\n          (TOOL_RESULT: previously executed action)
+    Task: {instruction}\n...<|im_end|>\n
   <|im_start|>assistant\n<abs_vis_token>  [latent slots]  [</abs_vis_token>]
 
 Latent slots are always the last K positions before the optional end token:
   convention "sft" : <abs_vis_token> + K x <abs_vis_token_pad>       (slots = the K pads)
   convention "vllm": <abs_vis_token> + (K-1) x <abs_vis_token_pad>   (slot 0 = <abs_vis_token>)
-The ``<|fim_pad|>`` placeholders are overwritten with RobotStateProjector tokens.
+The ``<|fim_pad|>`` placeholders are overwritten with RobotStateProjector tokens and the
+``<|fim_middle|>`` placeholders with the projected previous action (TOOL_RESULT context).
+Special-token strings are stripped from instructions so text can never inject control tokens.
 """
 from __future__ import annotations
 
@@ -36,11 +40,13 @@ class MonetInputs:
     num_latents: int
     slot_start: int  # index of the first latent slot (== L - K - has_end)
     convention: str
+    tool_mask: Optional[torch.BoolTensor] = None  # [B, L] TOOL_RESULT placeholder positions
 
     def to(self, device):
         f = lambda x: x.to(device) if isinstance(x, torch.Tensor) else x  # noqa: E731
         return MonetInputs(f(self.input_ids), f(self.attention_mask), f(self.pixel_values), f(self.image_grid_thw),
-                           f(self.state_mask), self.num_latents, self.slot_start, self.convention)
+                           f(self.state_mask), self.num_latents, self.slot_start, self.convention,
+                           f(self.tool_mask))
 
     @property
     def batch_size(self) -> int:
@@ -57,27 +63,45 @@ def to_pil(img) -> Image.Image:
 
 
 class PromptBuilder:
-    def __init__(self, processor, prompt_cfg, convention: str, num_latents: int):
+    def __init__(self, processor, prompt_cfg, convention: str, num_latents: int, tool_cfg=None):
         self.tok = processor.tokenizer
         self.image_processor = processor.image_processor
         self.cfg = prompt_cfg
+        self.tool_cfg = tool_cfg
         self.convention = convention
         self.K = num_latents
-        self.state_token_id = self.tok.convert_tokens_to_ids(prompt_cfg.state_placeholder_token)
-        if self.state_token_id is None or self.state_token_id == self.tok.unk_token_id:
-            raise ValueError(f"unknown state placeholder token {prompt_cfg.state_placeholder_token}")
+        self.state_token_id = self._special_id(prompt_cfg.state_placeholder_token)
+        self.n_tool = tool_cfg.num_tokens if (tool_cfg is not None and tool_cfg.num_prev_actions > 0) else 0
+        self.tool_token_id = self._special_id(tool_cfg.placeholder_token) if self.n_tool else None
+        # every added/special token string (e.g. <|fim_pad|>, <abs_vis_token>, <|image_pad|>)
+        self._special_strings = sorted(set(self.tok.get_added_vocab().keys()) | set(self.tok.all_special_tokens),
+                                       key=len, reverse=True)
         merge = self.image_processor.merge_size
         patch = self.image_processor.patch_size
         side = prompt_cfg.image_size // patch
         self.tokens_per_image = (side * side) // (merge * merge)
         self._cache: Dict[str, List[int]] = {}
 
+    def _special_id(self, token: str) -> int:
+        i = self.tok.convert_tokens_to_ids(token)
+        if i is None or i == self.tok.unk_token_id or token not in self.tok.get_added_vocab():
+            raise ValueError(f"{token} is not a single special token of this tokenizer")
+        return i
+
+    def sanitize(self, instruction: str) -> str:
+        for t in self._special_strings:
+            instruction = instruction.replace(t, " ")
+        return " ".join(instruction.split())
+
     # ------------------------------------------------------------------ text
     def prompt_text(self, instruction: str, n_views: int) -> str:
         vis = "".join("<|vision_start|>" + "<|image_pad|>" * self.tokens_per_image + "<|vision_end|>"
                       for _ in range(n_views))
         state = self.cfg.state_placeholder_token * self.cfg.num_state_tokens
-        body = self.cfg.template.format(state=state, instruction=instruction.strip())
+        tool = ""
+        if self.n_tool:
+            tool = self.cfg.tool_result_template.format(prev_action=self.tool_cfg.placeholder_token * self.n_tool)
+        body = self.cfg.template.format(state=state, instruction=self.sanitize(instruction), tool_result=tool)
         return (f"<|im_start|>system\n{self.cfg.system_prompt}<|im_end|>\n"
                 f"<|im_start|>user\n{vis}{body}<|im_end|>\n<|im_start|>assistant\n<abs_vis_token>")
 
@@ -102,6 +126,8 @@ class PromptBuilder:
                 raise RuntimeError(f"found {n_state} state placeholders, expected {self.cfg.num_state_tokens}")
             if sum(1 for i in ids if i == IMAGE_TOKEN_ID) != n_views * self.tokens_per_image:
                 raise RuntimeError("image token count mismatch")
+            if self.n_tool and sum(1 for i in ids if i == self.tool_token_id) != self.n_tool:
+                raise RuntimeError("TOOL_RESULT placeholder count mismatch")
             self._cache[key] = ids + self.latent_suffix_ids()
         return self._cache[key]
 
@@ -136,4 +162,5 @@ class PromptBuilder:
             input_ids=input_ids, attention_mask=attn, pixel_values=img["pixel_values"],
             image_grid_thw=img["image_grid_thw"], state_mask=input_ids == self.state_token_id,
             num_latents=self.K, slot_start=L - self.K - has_end, convention=self.convention,
+            tool_mask=(input_ids == self.tool_token_id) if self.n_tool else None,
         )

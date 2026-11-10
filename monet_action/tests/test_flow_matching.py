@@ -5,10 +5,15 @@ import pytest
 import torch
 
 from monet_action.config import ActionHeadConfig
-from monet_action.dit_action import (DiTActionHead, FlowMatchingDiT, diffusers_timestep_embedding,
-                                     sinusoidal_encoding)
-from monet_action.flow_matching import (discretize_time, euler_integrate, interpolate, masked_mse, sample_time,
-                                        velocity_target)
+from monet_action.dit_action import DiTActionHead, FlowMatchingDiT, diffusers_timestep_embedding, sinusoidal_encoding
+from monet_action.flow_matching import (
+    discretize_time,
+    euler_integrate,
+    interpolate,
+    masked_mse,
+    sample_time,
+    velocity_target,
+)
 
 
 def test_interpolation_endpoints_and_velocity():

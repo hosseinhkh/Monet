@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -70,9 +70,11 @@ class MonetConfig:
 class PromptConfig:
     system_prompt: str = "You are a helpful assistant."
     template: str = (
-        "Robot state: {state}\nTask: {instruction}\n"
+        "Robot state: {state}\n{tool_result}Task: {instruction}\n"
         "Think in latent space about how to complete the task, then call the action tool."
     )
+    # {tool_result} expands to this line when tool_result.num_prev_actions > 0 (else to "")
+    tool_result_template: str = "Last action tool result: {prev_action}\n"
     # Placeholder token whose embeddings are replaced by projected proprioception.
     state_placeholder_token: str = "<|fim_pad|>"
     num_state_tokens: int = 2
@@ -90,6 +92,21 @@ class StateConfig:
     # Also give the state directly to the DiT state encoder.
     state_to_action_head: bool = True
     dropout: float = 0.0
+
+
+@dataclass
+class ToolResultConfig:
+    """TOOL_RESULT context: the previously *executed* action(s) are encoded into the next prompt,
+    before latent reasoning (proposal section 2: "new RGB + state + applied action -> TOOL_RESULT").
+    The fresh observation (images + state) is the other half of the TOOL_RESULT."""
+
+    num_prev_actions: int = 1  # 0 disables the action part of TOOL_RESULT
+    num_tokens: int = 1
+    placeholder_token: str = "<|fim_middle|>"
+    hidden_dim: int = 512
+    # Probability (per training sample) of hiding the previous action: mitigates the "copycat"
+    # shortcut of behaviour cloning on smooth action sequences and covers episode starts.
+    dropout: float = 0.3
 
 
 @dataclass
@@ -170,6 +187,17 @@ class TrainConfig:
     # G1 overfit evidence: every N steps, fixed-noise open-loop metrics on the *training*
     # windows (deterministic, so the curve is comparable step to step). 0 == off.
     overfit_eval_every: int = 0
+    # Optional closed-loop LIBERO check *during* training on development init states (30+).
+    # Failures (e.g. no EGL) are logged as events and never stop training. 0 == off.
+    sim_eval_every: int = 0
+    sim_eval_tasks: List[int] = field(default_factory=lambda: [0, 5])
+    sim_eval_episodes: int = 4
+    sim_eval_init_offset: int = 40
+    # Optional D2 regulariser keeping LoRA latents close to the frozen-Monet latents
+    # (proposal WP2 "optional small regulariser"; reported separately as retention_loss). 0 == off.
+    latent_retention_weight: float = 0.0
+    system_monitor_interval_s: float = 30.0
+    tensorboard: bool = False  # also write TensorBoard scalars (needs the tensorboard package)
     deterministic: bool = False
     compile: bool = False
 
@@ -191,7 +219,12 @@ class EvalConfig:
     num_parallel_envs: int = 10
     camera_size: int = 256
     save_videos: int = 2  # per task per seed
-    intervention: Optional[str] = None  # D3: zero|mask|shuffle_order|truncate:k|gaussian|swap
+    # D3 latent interventions: zero|mask|shuffle_order|truncate:k|gaussian|swap
+    # bypass diagnostics: mask_vl (hide VL context, keep latents) | mask_all (unconditioned head)
+    intervention: Optional[str] = None
+    # Benchmark init states 0..29 are reserved for final reporting (3 seeds x 10 episodes);
+    # development rollouts (smoke tests, in-training sim eval, latent-bank warm-up) use 30..49.
+    init_state_offset: int = 0
     output_dir: str = "results/eval"
     gpu_hourly_cost_usd: Optional[float] = None
 
@@ -204,6 +237,7 @@ class ExperimentConfig:
     monet: MonetConfig = field(default_factory=MonetConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
     state: StateConfig = field(default_factory=StateConfig)
+    tool_result: ToolResultConfig = field(default_factory=ToolResultConfig)
     conditioner: ConditionerConfig = field(default_factory=ConditionerConfig)
     action_head: ActionHeadConfig = field(default_factory=ActionHeadConfig)
     data: DataConfig = field(default_factory=DataConfig)
@@ -238,6 +272,12 @@ class ExperimentConfig:
         assert self.action_head.type in ("dit", "mlp")
         if not self.state.inject_into_monet and not self.state.state_to_action_head:
             raise ValueError("state must reach the policy through at least one path")
+        if self.tool_result.num_prev_actions > 0 and "{tool_result}" not in self.prompt.template:
+            raise ValueError("prompt.template needs a {tool_result} field when tool_result.num_prev_actions > 0")
+        if self.tool_result.placeholder_token == self.prompt.state_placeholder_token:
+            raise ValueError("tool_result and state placeholders must differ")
+        if self.train.latent_retention_weight > 0 and not self.monet.lora_enabled:
+            raise ValueError("latent_retention_weight only makes sense with LoRA (D2)")
 
 
 # --------------------------------------------------------------------------------------
@@ -273,7 +313,6 @@ def _from_dict(cls, data: Dict[str, Any]):
     for k, v in (data or {}).items():
         if k not in names:
             raise KeyError(f"Unknown config key '{k}' for {cls.__name__}")
-        ftype = names[k].type
         sub = _SUBCONFIGS.get(k) if cls is ExperimentConfig else None
         if sub is not None and isinstance(v, dict):
             kwargs[k] = _from_dict(sub, v)
@@ -286,6 +325,7 @@ _SUBCONFIGS = {
     "monet": MonetConfig,
     "prompt": PromptConfig,
     "state": StateConfig,
+    "tool_result": ToolResultConfig,
     "conditioner": ConditionerConfig,
     "action_head": ActionHeadConfig,
     "data": DataConfig,

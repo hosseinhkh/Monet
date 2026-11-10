@@ -1,0 +1,1 @@
+{"time": 1794272124.0673425, "gpus": [], "cpu_percent": 0.0, "ram_used_gb": 1.2015838623046875, "ram_total_gb": 15.709304809570312, "proc_rss_gb": 0.6225166320800781, "disk_free_gb": 24.540992736816406, "load_avg_1m": 2.1787109375, "torch_mem_allocated_gb": null, "torch_max_mem_allocated_gb": null}
