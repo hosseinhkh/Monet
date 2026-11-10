@@ -3,10 +3,10 @@
   "name": "closed_loop_tiny",
   "variant": "tiny",
   "state": "finished",
-  "pid": 6649,
+  "pid": 1553,
   "host": "vm",
-  "started_at": 1794272124.06636,
-  "updated_at": 1794272150.1566274,
+  "started_at": 1794285288.8380072,
+  "updated_at": 1794285316.610336,
   "step": 2,
   "max_steps": null,
   "error": null,
@@ -17,5 +17,5 @@
   "intervention": null,
   "execution_prefix": 2,
   "success_rate": 0.0,
-  "finished_at": 1794272150.1566246
+  "finished_at": 1794285316.610332
 }

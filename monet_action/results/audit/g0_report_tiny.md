@@ -1,6 +1,6 @@
 # G0 audit report
 
-Generated: 2026-11-10 00:54:01
+Generated: 2026-11-10 04:32:35
 
 ## Pinned sources
 
@@ -21,7 +21,7 @@ Generated: 2026-11-10 00:54:01
   "cuda_available": false,
   "gpus": [],
   "nvidia_driver": "n/a",
-  "repo_commit": "4c38596405f4807baa82a983707e6e994381680d",
+  "repo_commit": "f8283de870f6f042211beeaa846d2ee674498bfa",
   "repo_dirty": true,
   "transformers": "4.54.0",
   "peft": "0.21.2",
@@ -43,7 +43,7 @@ Generated: 2026-11-10 00:54:01
 {
   "model_path": "tiny-random",
   "revision": "39c1e320a3e15c357bff911fda263923edbdda37",
-  "load_s": 1.7268311977386475,
+  "load_s": 2.01257586479187,
   "load_info": {
     "tiny_random": true,
     "missing_keys": [],
@@ -103,16 +103,16 @@ Generated: 2026-11-10 00:54:01
       ],
       "timings_ms": {
         "cached": {
-          "monet_embed": 5.980611999802932,
-          "monet_prefill": 8.517395000126271,
-          "monet_latent_steps": 40.533719999984896,
-          "wall_ms": 55.27186393737793
+          "monet_embed": 6.102629999986675,
+          "monet_prefill": 6.961972999988575,
+          "monet_latent_steps": 41.303074000097695,
+          "wall_ms": 54.57615852355957
         },
         "recompute": {
-          "monet_embed": 6.6887279999718885,
-          "monet_prefill": 3.995633000158705,
-          "monet_latent_steps": 44.907235000209766,
-          "wall_ms": 56.16140365600586
+          "monet_embed": 3.9777009999397706,
+          "monet_prefill": 4.427339999892865,
+          "monet_latent_steps": 49.197917999890706,
+          "wall_ms": 58.1669807434082
         }
       },
       "parity": [
@@ -192,16 +192,16 @@ Generated: 2026-11-10 00:54:01
       ],
       "timings_ms": {
         "cached": {
-          "monet_embed": 3.751106999516196,
-          "monet_prefill": 4.411646999869845,
-          "monet_latent_steps": 43.25190799954726,
-          "wall_ms": 51.58853530883789
+          "monet_embed": 6.218750000016371,
+          "monet_prefill": 5.026108000038221,
+          "monet_latent_steps": 41.766484000049786,
+          "wall_ms": 53.17234992980957
         },
         "recompute": {
-          "monet_embed": 3.9229519998116302,
-          "monet_prefill": 4.790617999788083,
-          "monet_latent_steps": 43.50974299995869,
-          "wall_ms": 52.78968811035156
+          "monet_embed": 5.876453000041693,
+          "monet_prefill": 5.528092999952605,
+          "monet_latent_steps": 59.89166199992724,
+          "wall_ms": 72.00002670288086
         }
       },
       "parity": [
@@ -349,8 +349,8 @@ Generated: 2026-11-10 00:54:01
 {
   "task_id": 6,
   "instruction": "pick up the black bowl next to the cookie box and place it on the plate",
-  "reset_ms": 4247.164487838745,
-  "step_ms": 206.50811195373535,
+  "reset_ms": 4651.305913925171,
+  "step_ms": 214.29085731506348,
   "image_corr_with_dataset": {
     "policy_view_rot180": 0.9274351216543617,
     "raw_unflipped": -0.27278291627354934

@@ -19,7 +19,7 @@ RGB (agent + wrist) + instruction + 8D state + TOOL_RESULT (previously executed 
 The code, configs, tests, monitoring and scripts for G0–G3 are complete. Everything that can run without a
 GPU was run in this repository's CPU container:
 
-* the full test suite (`make test-all`; see `results/cpu_validation/pytest_all.txt`);
+* the full test suite: 145 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
 * the G0 audit (`results/audit/g0_report_tiny.*`);
 * a tiny overfit;
 * a real-LIBERO closed-loop trace;
@@ -103,7 +103,7 @@ and environment info for later debugging. Checkpoint weights are added only with
 | D4 | frozen | 10 slots | trainable query embeddings at the same slots, no feedback | D1 + K×3584 queries | `d4_query.yaml` |
 | D5 | frozen | 10 | self-fed | MLP regression head (control only) | `d5_mlp.yaml` |
 | K sweep | frozen | 5, 20 | self-fed | as D1 | `d1_k5.yaml`, `d1_k20.yaml` |
-| ablations | frozen | 10 | self-fed | latents-only conditioning; no previous action in TOOL_RESULT | `d1_latents_only.yaml`, `d1_no_toolresult.yaml` |
+| ablations | frozen | 10 | self-fed | latents-only conditioning; no previous action in TOOL_RESULT; SFT-stage latent layout | `d1_latents_only.yaml`, `d1_no_toolresult.yaml`, `d1_sft_convention.yaml` |
 
 An optional external baseline (official GR00T N1.7 LIBERO checkpoint, separate environment, not
 comparable as-is) is described in [docs/EXTERNAL_BASELINES.md](docs/EXTERNAL_BASELINES.md).
@@ -116,7 +116,7 @@ monet_action/
   Makefile    one target per component test, audits, dashboard, bundle, lint
   docs/       DASHBOARD.md, UPSTREAM_CODE_REVIEW.md, EXTERNAL_BASELINES.md, PHASE2_EXTENSION_POINTS.md
   environment/ train/sim/dev requirements, cpu_validation_lock.txt (server_lock.txt written on setup)
-  configs/    base + d0_k0 d1_k5 d1_k10 d1_k20 d2_lora d4_query d5_mlp d1_latents_only d1_no_toolresult,
+  configs/    base + d0_k0 d1_k5 d1_k10 d1_k20 d2_lora d4_query d5_mlp d1_latents_only d1_no_toolresult d1_sft_convention,
               audit, smoke, eval, eval_smoke, tiny_cpu
   src/monet_action/
     monet_loader.py     loads the authors' modeling file under a private name; tiny random Monet for tests
@@ -167,8 +167,10 @@ parity tests compare against.
 
 ## Key design decisions (all configurable)
 
-* **Latent convention.** `sft` (default, the authors' differentiable HF path) or `vllm` (the authors'
-  inference runner). They differ; see AUDIT.md §1.
+* **Latent layout.** The default is `vllm`, the layout the released Monet-7B was last trained with
+  (VLPO RL, K=10) and the one the authors use for inference. The alternative `sft` is the SFT-stage layout
+  (K=8 in the authors' scripts) and is available as an ablation (`d1_sft_convention.yaml`). Both are
+  differentiable here; see AUDIT.md §1.
 * **Gradients.** `feedback_grad=bptt` puts no detach anywhere in the loop. `truncated` reproduces the
   authors' SFT gradient.
 * **Recurrence implementation.** The KV-cache recurrence is the default. `recompute` is equivalent and is

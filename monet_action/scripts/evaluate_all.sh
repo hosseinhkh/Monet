@@ -4,7 +4,7 @@
 source "$(dirname "$0")/common.sh"
 EVAL=configs/eval.yaml
 OUT=results/eval
-for run in d0_k0 d1_k10 d2_lora d4_query d1_k5 d1_k20 d1_latents_only d1_no_toolresult; do
+for run in d0_k0 d1_k10 d2_lora d4_query d1_k5 d1_k20 d1_latents_only d1_no_toolresult d1_sft_convention; do
   [ -d runs/$run ] || { echo "skip $run (no checkpoint)"; continue; }
   python -m monet_action.evaluate closed_loop --checkpoint runs/$run --eval-config $EVAL --output-dir $OUT/$run --device "$DEVICE"
   python -m monet_action.evaluate offline --checkpoint runs/$run --steps 2 4 8 --output-dir $OUT/$run --device "$DEVICE"

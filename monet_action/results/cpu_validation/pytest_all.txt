@@ -1,4 +1,6 @@
-...................................................                      [100%]
+........................................................................ [ 49%]
+........................................................................ [ 99%]
+.                                                                        [100%]
 =============================== warnings summary ===============================
 ../../venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:53
   /home/user/venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:53: DeprecationWarning: The 'warn' method is deprecated, use 'warning' instead
@@ -13,4 +15,4 @@
     ROBOSUITE_DEFAULT_LOGGER.warn("To setup, run: python {}/scripts/setup_macros.py".format(robosuite.__path__[0]))
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-51 passed, 3 warnings in 67.00s (0:01:07)
+145 passed, 1 skipped, 3 warnings in 120.97s (0:02:00)

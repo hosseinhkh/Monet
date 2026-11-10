@@ -9,7 +9,7 @@
     "dtype": "float32",
     "attn_implementation": "sdpa",
     "num_latents": 10,
-    "latent_convention": "sft",
+    "latent_convention": "vllm",
     "recurrence_impl": "cached",
     "feedback_grad": "bptt",
     "latent_layer": -1,

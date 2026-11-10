@@ -9,7 +9,7 @@ bash scripts/train_d2.sh      # stage B: warm-starts from runs/d1_k10/ckpt_00100
 bash scripts/train_d4.sh
 bash scripts/train_d5.sh
 if [ "${EXTRA:-0}" = "1" ]; then   # K sweep {5,20} and ablations (latents-only, no TOOL_RESULT action)
-  for c in d1_k5 d1_k20 d1_latents_only d1_no_toolresult; do
+  for c in d1_k5 d1_k20 d1_latents_only d1_no_toolresult d1_sft_convention; do
     python -m monet_action.train --config configs/$c.yaml --device "$DEVICE"
   done
 fi

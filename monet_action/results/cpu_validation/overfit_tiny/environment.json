@@ -6,7 +6,7 @@
   "cuda_available": false,
   "gpus": [],
   "nvidia_driver": "n/a",
-  "repo_commit": "4c38596405f4807baa82a983707e6e994381680d",
+  "repo_commit": "f8283de870f6f042211beeaa846d2ee674498bfa",
   "repo_dirty": true,
   "transformers": "4.54.0",
   "peft": "0.21.2",

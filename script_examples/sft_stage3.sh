@@ -39,7 +39,7 @@ torchrun --nproc-per-node=8 --master-port=29501 -m src.main \
   --epochs 2 \
   --bsz 1 \
   --grad_accum_steps 16 \
-  --stage "avt_v5_stage2" \
+  --stage "sft_stage3" \
   --data_path \
     "path_to_your_dataset/Monet-SFT-125K/Visual_CoT/train.json" \
     "path_to_your_dataset/Monet-SFT-125K/CogCoM/train.json" \
@@ -48,7 +48,7 @@ torchrun --nproc-per-node=8 --master-port=29501 -m src.main \
     "path_to_your_dataset/Monet-SFT-125K/Zebra_CoT_visual_search/train.json" \
     "path_to_your_dataset/Monet-SFT-125K/Zebra_CoT_geometry/train.json" \
   --log_file "./log.txt" \
-  --load_model_path path_to_your_model/Monet_checkpoints/sft_stage1${STAGE1_MODEL} \
+  --load_model_path path_to_your_model/Monet_checkpoints/sft_stage1/${STAGE1_MODEL} \
   --save_model_path path_to_your_model/Monet_checkpoints/sft_stage3/${SAVE_CKPT} \
   --dataset_root path_to_your_dataset/Monet-SFT-125K \
   --deepspeed ./deepspeed/ds_zero2_gpu.json \

@@ -21,14 +21,27 @@ Files: `monet_qwen_model/modeling_qwen2_5_vl_monet.py` (HF, used for SFT), `infe
   reach the latent vectors only through a second "ce_patch" full forward. Our default `feedback_grad=bptt`
   keeps the whole K-step loop differentiable (no detach); `feedback_grad=truncated` reproduces the
   authors' one-step behaviour. Tested: `test_bptt_vs_truncated_feedback`.
-* **Two different conventions in the authors' code (finding).** HF/SFT: `<abs_vis_token>` keeps its token
-  embedding and the K pad slots after it are fed back. vLLM runner: the embedding of the sampled
-  `<abs_vis_token>` itself is overwritten with the previous hidden state, followed by K-1 more fed slots
-  (`rows = query_start_loc[1:]-1` selects the newly sampled token). The RL actor then patches latents into
-  positions *strictly inside* (start, end), i.e. K-1 positions for K recorded latents, and skips samples
-  whose counts differ. Both conventions are implemented (`monet.latent_convention: sft | vllm`); `sft` is
-  the default because it is the differentiable training path. *tiny*: the two conventions give clearly
-  different latents (cosine 0.26-0.28 per step, `g0_report_tiny.json`); measure on Monet-7B in G0.
+* **Two latent layouts in the authors' code (finding).**
+  * **SFT stages (HF `latent_mode`, `src/utils.py: replace_img_pad_with_latent_pad`).** The assistant
+    text holds `<abs_vis_token>` + K x `<abs_vis_token_pad>` + `</abs_vis_token>`.
+    * `<abs_vis_token>` keeps its token embedding.
+    * Each pad slot is fed the previous position's hidden state.
+    * K = 8 in `script_examples/sft_stage2.sh` and `sft_stage3.sh`; the `--latent_size` default is 4.
+  * **Inference and RL (VLPO).** The vLLM runner overwrites the embedding of the sampled
+    `<abs_vis_token>` itself with the previous hidden state, then feeds K-1 more slots, i.e. K fed
+    positions in total. Here `rows = query_start_loc[1:]-1` selects the newly sampled token.
+    * The RL actor recomputes log-probs in HF by patching the recorded latents at
+      `torch.arange(start, end)` (`RL/verl/workers/actor/dp_actor.py`, `collect_varlen_segment_indices`).
+      That is the start slot plus the K-1 inner positions. Its docstring says "strictly inside", but
+      the code includes the start.
+    * RL and inference use `LATENT_SIZE=10` (`RL/examples/vlpo_train.sh`, `inference/example.sh`).
+  * **Consequence.** The released Monet-7B (config `stage: avt_v5_stage2`, then RL) was *last* trained
+    with the vLLM/RL layout at K=10, and the authors evaluate with it.
+  * **Our choice.** Both layouts are implemented differentiably (`monet.latent_convention: vllm | sft`).
+    * The default is `vllm` (corrected from an earlier `sft` default).
+    * `configs/d1_sft_convention.yaml` is the ablation.
+  * *tiny*: the two layouts give clearly different latents (cosine 0.26–0.28 per step,
+    `g0_report_tiny.json`). The Monet-7B value is recorded by `make test-monet7b` and `make audit`.
 * **Batch size.** The authors' `latent_mode` loops over samples ("only batch_size=1 tested"). Our
   implementation is batched with left padding so latent slots align across the batch.
 * **Parity (tiny, CPU, fp32).** Batched cached recurrence vs the authors' `latent_mode` forward: max abs err
@@ -104,8 +117,10 @@ therefore re-implement the contract at a compact size and train from scratch.
 |---|---|
 | Source SHAs pinned | done (`SOURCE_VERSIONS.md`) |
 | Dependency lock | CPU lock done; server lock written by `scripts/setup_env.sh` |
-| Monet latent mechanism reproduced, parity vs authors' code | done on tiny config (CPU); **pending on Monet-7B (GPU)** |
-| K=0 vs K=10, shapes, finite values, state dependence | done on tiny config; **pending on Monet-7B** |
+| Monet latent mechanism reproduced, parity vs authors' code | done on tiny config (CPU); **pending on Monet-7B**: `make test-monet7b` / `make audit` (tests written, self-skip without CUDA) |
+| K=0 vs K=10, shapes, finite values, state dependence | done on tiny config; **pending on Monet-7B** (same commands) |
+| Monet-7B tokenizer / special tokens / prompt layout | done (real tokenizer files; `test_tokens.py`) |
 | One correct LIBERO batch | done (real data; `test_one_real_minibatch`) |
-| Simulator reset/step/reobserve + orientation | done (real LIBERO, OSMesa) |
+| Simulator reset/step/reobserve, orientation, demo replay | done (real LIBERO, OSMesa; `test_libero_sim.py`) |
 | GR00T compatibility report | done (section 2) |
+| Upstream code review | done (`docs/UPSTREAM_CODE_REVIEW.md`) |

@@ -1,0 +1,8 @@
+_base_: d1_k10.yaml
+name: d1_sft_convention
+variant: D1-sftconv
+description: Ablation. D1 with the SFT-stage latent layout (<abs_vis_token> keeps its embedding, K pads are fed) instead of the default inference/RL layout (the start slot itself is overwritten).
+monet:
+  latent_convention: sft
+train:
+  output_dir: runs/d1_sft_convention

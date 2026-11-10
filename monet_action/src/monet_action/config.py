@@ -32,12 +32,14 @@ class MonetConfig:
     attn_implementation: str = "sdpa"
     # ---- latent reasoning ----
     num_latents: int = 10  # K. 0 == no latent reasoning (D0)
-    # "sft": <abs_vis_token> keeps its token embedding, K <abs_vis_token_pad> slots are fed
-    #        the previous position's final (post-norm) hidden state. Matches the authors'
-    #        differentiable HF forward (Qwen2_5_VLModel.forward(latent_mode=True)).
-    # "vllm": the <abs_vis_token> slot itself is overwritten with the previous hidden state
-    #        and K-1 further slots follow. Matches the authors' vLLM inference runner.
-    latent_convention: str = "sft"
+    # "vllm" (default): the <abs_vis_token> slot itself is overwritten with the previous final
+    #        (post-norm) hidden state and K-1 further slots follow. This is how the released
+    #        Monet-7B was last trained (VLPO RL: vLLM rollouts + HF log-probs patch latents at
+    #        arange(start, end), LATENT_SIZE=10) and how the authors run inference.
+    # "sft": <abs_vis_token> keeps its token embedding and K <abs_vis_token_pad> slots are fed.
+    #        Matches the SFT-stage HF forward (Qwen2_5_VLModel.forward(latent_mode=True), K=8).
+    # Both are implemented differentiably here; see AUDIT.md section 1.
+    latent_convention: str = "vllm"
     # "cached": prefill + K single-token steps on a KV cache (fast; no HF grad checkpointing)
     # "recompute": K+1 full forwards on the growing sequence (works with grad checkpointing)
     recurrence_impl: str = "cached"

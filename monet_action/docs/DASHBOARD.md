@@ -13,6 +13,11 @@ or later on an unzipped debug bundle.
   * `scripts/dashboard.sh`
   * tests in `tests/test_dashboard.py`
 
+Screenshots, taken from the tiny CPU validation run in this repository:
+
+![run charts](img/dashboard_run_charts.png)
+![evaluation detail](img/dashboard_eval.png)
+
 ## Quick start
 
 ```bash

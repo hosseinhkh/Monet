@@ -4,7 +4,7 @@
   "layer_note": "-1 == final post-RMSNorm hidden state (the vector Monet feeds back)",
   "pooling": "none: token-level conditioning (every valid prompt token + each latent step)",
   "num_latents_K": 10,
-  "latent_convention": "sft",
+  "latent_convention": "vllm",
   "recurrence_impl": "cached",
   "feedback_grad": "bptt",
   "reasoning_mode": "self_fed",
@@ -21,7 +21,7 @@
     "image",
     "wrist_image"
   ],
-  "prompt_tokens_incl_latent_slots": 117,
-  "slot_start_unpadded": 107,
+  "prompt_tokens_incl_latent_slots": 116,
+  "slot_start_unpadded": 106,
   "example_prompt": "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n<|vision_start|><|image_pad|>x16<|vision_end|><|vision_start|><|image_pad|>x16<|vision_end|>Robot state: <|fim_pad|><|fim_pad|>\nLast action tool result: <|fim_middle|>\nTask: pick up the black bowl next to the cookie box and place it on the plate\nThink in latent space about how to complete the task, then call the action tool.<|im_end|>\n<|im_start|>assistant\n<abs_vis_token>"
 }

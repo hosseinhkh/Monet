@@ -9,5 +9,5 @@ python -m monet_action.audit --config configs/audit.yaml --device cpu --out resu
 python -m monet_action.train --config configs/tiny_cpu.yaml --device cpu \
   --override train.output_dir=runs/overfit train.max_steps=400 train.overfit_eval_every=50 data.max_windows=32
 python -m monet_action.evaluate closed_loop --checkpoint runs/overfit --device cpu --seeds 0 --task-ids 6 \
-  --episodes-per-task 2 --num-parallel-envs 2 --max-steps 24 --execution-prefix 2 --save-videos 1 \
+  --episodes-per-task 2 --num-parallel-envs 2 --max-steps 24 --execution-prefix 2 --save-videos 1 --init-state-offset 30 \
   --output-dir results/cpu_validation/closed_loop_tiny --tag tiny_cpu_G1

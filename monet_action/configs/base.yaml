@@ -7,7 +7,7 @@ monet:
   dtype: bfloat16
   attn_implementation: sdpa
   num_latents: 10
-  latent_convention: sft        # authors' differentiable HF latent_mode convention
+  latent_convention: vllm       # authors' inference + RL convention (released checkpoint); 'sft' = SFT-stage layout
   recurrence_impl: cached
   feedback_grad: bptt           # gradients flow through all K self-fed steps
   latent_layer: -1              # final post-norm hidden == the vector Monet feeds back

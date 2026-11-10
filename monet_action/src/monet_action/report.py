@@ -15,7 +15,7 @@ from .evaluate import compare
 from .metrics import markdown_table
 
 PRINCIPAL = ["d0_k0", "d1_k10", "d2_lora"]
-CONTROLS = ["d4_query", "d5_mlp", "d1_latents_only", "d1_no_toolresult", "d1_k5", "d1_k20"]
+CONTROLS = ["d4_query", "d5_mlp", "d1_latents_only", "d1_no_toolresult", "d1_sft_convention", "d1_k5", "d1_k20"]
 
 
 def _load(p: Path):

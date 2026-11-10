@@ -175,14 +175,14 @@ Please refer to `RL/tools/custom_api.py` for the exact calling interface.
 
 ## ⭐Inference
 ### Download Monet-7B Model
-You can download Monet-7B at [this repo](https://huggingface.co/NOVAglow646/Monet-7B). The inference requires replacing the official code of vLLM (see [Modified vLLM model](./monet_qwen_model/vllm/monet_gpu_model_runner.py)). 
+You can download Monet-7B at [this repo](https://huggingface.co/NOVAglow646/Monet-7B). The inference requires replacing the official code of vLLM (see [Modified vLLM model](./inference/vllm/monet_gpu_model_runner.py)). 
 
 ### Inference Example
 See this [quick example](./inference/vllm_inference_example.py) to use Monet-7B with latent reasoning.
 
 
 * **Setting latent size at inference:** You can control the number of latent embeddings to generate each time the model starts latent reasoning by using: ``` export LATENT_SIZE=10  ```
-* **Handling model outputs containing latent reasoning.** To achieve latent-text interleaved reasoning, the model may generate `<abs_vis_token>` to switch to the latent thinking mode. Then, with our [modified vLLM gpu_model_runner.py](./monet_qwen_model/vllm/monet_gpu_model_runner.py), it will replace the next tokens with the representations of the last layer. Since these latent tokens are not human-readable, you can post-process the output by detecting the start token `<abs_vis_token>` and nd replacing the enclosed latent tokens with a clean placeholder such as `<latent>`.
+* **Handling model outputs containing latent reasoning.** To achieve latent-text interleaved reasoning, the model may generate `<abs_vis_token>` to switch to the latent thinking mode. Then, with our [modified vLLM gpu_model_runner.py](./inference/vllm/monet_gpu_model_runner.py), it will replace the next tokens with the representations of the last layer. Since these latent tokens are not human-readable, you can post-process the output by detecting the start token `<abs_vis_token>` and nd replacing the enclosed latent tokens with a clean placeholder such as `<latent>`.
 
 ### Evaluation
 We evalutate Monet-7B on [VLMEvalKit](https://github.com/open-compass/VLMEvalKit). Notably, we replace the original exact matching judgement with API judge to ensure more accurate assessment.
