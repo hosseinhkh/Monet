@@ -18,6 +18,16 @@ def test_memory_recommendation(tmp_path):
     assert preflight.check_memory(str(p)) == 1
 
 
+def test_memory_recommendation_keeps_effective_batch_16(tmp_path):
+    """Batch 12 fits a 50% share, but 12 x 1 would change the effective batch: 8 x 2 = 16 is recommended."""
+    assert preflight.effective_batch() == 16
+    p = tmp_path / "memory_profile.json"
+    p.write_text(json.dumps([{"batch_size": b, "ok": b <= 12, "peak_gb": 10.0 + 2.5 * b if b <= 12 else None,
+                              "step_time_s": 0.1 * b, "oom": b > 12, "error": None} for b in (2, 4, 8, 12, 16)]))
+    assert preflight.check_memory(str(p), budget_gb=44.5) == 0
+    assert (tmp_path / "recommended_batch.txt").read_text().strip() == "train.batch_size=8 train.grad_accum=2"
+
+
 def test_memory_check_separates_crash_from_oom(tmp_path, capsys):
     p = tmp_path / "memory_profile.json"
     p.write_text(json.dumps([{"batch_size": 2, "ok": True, "peak_gb": 30.0, "step_time_s": 1.0, "oom": False, "error": None},

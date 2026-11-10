@@ -103,7 +103,7 @@ It runs these steps in order and stops at the first failure. Each step writes
 | `tests_cpu` | the whole test suite except the GPU module (incl. sim, overfit, dashboard) | all pass |
 | `tests_gpu` | **real Monet-7B**: no missing weights, finite `[2,10,3584]` latents, parity with the authors' code, state dependence, LoRA gradients, latency | all pass, **none skipped** |
 | `audit` | G0 report: both latent layouts, parity, K=0 vs K=10, data conventions, sim orientation | `results/audit/g0_report_monet7b.json` checks pass |
-| `memory` | peak memory + step time of D2 at micro-batch 4/8/12/16 | recommends a batch → `results/preflight/recommended_batch.txt` |
+| `memory` | peak memory + step time of D2 (the largest variant) at micro-batch 2/4/8/12/16, 5 steps each | recommends the largest micro-batch that fits the share **and** divides the effective batch 16 → `results/preflight/recommended_batch.txt`; a probe that crashes for a reason other than memory fails the step with its error |
 | `dry_run` | every variant for 6 steps (incl. D1→D2 and D0→D0-LoRA warm starts, in-training sim eval), then the complete `evaluate_all.sh` and report | prints `DRY RUN OK` |
 | `smoke` | G1: Monet-7B overfits 32 demo windows; 2-task closed-loop smoke rollout | fixed-noise loss falls, final < 0.5 × initial, gripper accuracy > 0.9 |
 
@@ -115,6 +115,17 @@ Useful variants:
 
 When the summary prints **`READY TO TRAIN`**, look at the smoke videos in `results/smoke/closed_loop/videos/`.
 The arm should move toward the bowl, and nothing should be mirrored or upside down.
+
+The recommendation is read from the stored profile, so it can be recomputed without re-profiling (takes
+seconds):
+```bash
+python -m monet_action.preflight memory && cat results/preflight/recommended_batch.txt
+```
+With a 50% share of a 96 GB card, expect `train.batch_size=8 train.grad_accum=2`. A larger micro-batch can
+fit, but 16 is not a multiple of it, so it would change the effective batch the configs are tuned for.
+
+Run long steps (the preflight, training, evaluation) inside **tmux**, so they survive SSH disconnects:
+`tmux new -s <name>`, detach with `Ctrl-b d`, reattach with `tmux attach -t <name>`.
 
 ## 5b. GPU usage (what runs where)
 
@@ -194,21 +205,49 @@ The holder's state and log are in `~/.cache/monet_action/gpu_hold/gpu<N>/`.
 
 ## 6. Start training (in tmux, so it survives SSH disconnects)
 
+**What is trained.** There is no full fine-tuning in Phase 1. Monet-7B's base weights, vision tower included,
+are frozen in every run:
+
+| run (config) | Monet-7B | trained | steps | starts from |
+|---|---|---|---|---|
+| D0 (`d0_k0`), K=0 | frozen | state + TOOL_RESULT projectors, conditioner, DiT | 20k | scratch |
+| D1 (`d1_k10`), K=10 | frozen | same modules as D0 | 20k | scratch |
+| D2 (`d2_lora`), K=10 | **LoRA** r=16, α=32, q/k/v/o, layers 20–27 (~2.9M params) | D1's modules + LoRA | 10k (stage B) | `runs/d1_k10/ckpt_0010000` |
+| D0-LoRA (`d0_k0_lora`), K=0 | **LoRA**, same as D2 | D0's modules + LoRA | 10k (stage B) | `runs/d0_k0/ckpt_0010000` |
+| D4 (`d4_query`), K=10 learned queries | frozen | D1's modules + K query embeddings | 20k | scratch |
+| D5 (`d5_mlp`), K=10 | frozen | projectors, conditioner, MLP head | 20k | scratch |
+| `EXTRA=1`: K=5, K=20, 3 ablations | frozen | as D1 | 20k | scratch |
+| `EXTRA=1`: D4-LoRA (`d4_query_lora`) | **LoRA** | D4's modules + LoRA | 10k (stage B) | `runs/d4_query/ckpt_0010000` |
+
+Every run uses an effective batch of 16 windows and the same data split, seed, DiT and conditioner. The
+step-10k checkpoints of D0, D1 and D4 are never deleted (`train.keep_every=10000`), because the LoRA runs
+start from them.
+
 ```bash
 tmux new -s phase1
 ```
 
 ```bash
-conda activate monet_action && cd ~/Monet/monet_action && mkdir -p runs && bash scripts/train_all.sh 2>&1 | tee -a runs/train_all.log
+conda activate monet_action && cd /path/to/Monet/monet_action && mkdir -p runs && bash scripts/train_all.sh 2>&1 | tee -a runs/train_all.log
 ```
-The batch size comes automatically from `results/preflight/recommended_batch.txt`. Variants run in
-dependency order: D0 → D1 → D2 (from D1@10k) → D0-LoRA (from D0@10k) → D4 → D5. Detach with `Ctrl-b d`
-and reattach with `tmux attach -t phase1`. Add `EXTRA=1` for the K sweep {5,20}, the ablations and
-D4-LoRA.
+
+* **Batch size.** It comes automatically from `results/preflight/recommended_batch.txt`, the same for
+  every variant. Override it with `TRAIN_OVERRIDES="train.batch_size=8 train.grad_accum=2"`.
+* **Order.** Variants run in dependency order: D0 → D1 → D2 (from D1@10k) → D0-LoRA (from D0@10k) → D4
+  → D5. Add `EXTRA=1` for the K sweep {5,20}, the ablations and D4-LoRA.
+* **tmux.** Detach with `Ctrl-b d` and reattach with `tmux attach -t phase1`.
+* **One variant at a time.** Use `bash scripts/train_d1.sh` (likewise `train_d0`, `d0_lora`, `d2`, `d4`,
+  `d5`), or `python -m monet_action.train --config configs/<run>.yaml`. These use the configs' batch
+  (8 × 2) unless you add `--override train.batch_size=... train.grad_accum=...`.
+* **How long.** Each run's ETA is on the dashboard and in `runs/<run>/status.json`. Before starting, a
+  rough per-run estimate is steps × grad_accum × s/step (from `results/preflight/memory_profile.json`
+  at your micro-batch), plus about 10% for validation and simulator checks.
+* **GPU share (`MONET_GPU_HOLD=1`).** Each run takes the 50% over from the holder when it starts and
+  hands it back when it ends. Between variants the holder keeps it, so other users cannot take it.
 
 Monitoring (second tmux window, `Ctrl-b c`):
 ```bash
-conda activate monet_action && cd ~/Monet/monet_action && make dashboard
+conda activate monet_action && cd /path/to/Monet/monet_action && make dashboard
 ```
 
 From your laptop:
@@ -259,6 +298,11 @@ Paired statistics: bootstrap CI and McNemar p-value.
 
 Then fill in `RESEARCH_MEMO.md` from the report, keeping negative results.
 
+When Phase 1 is finished, give the reserved GPU share back to the other users of the card:
+```bash
+bash scripts/gpu_hold.sh stop
+```
+
 ## 8. Debugging and sharing logs
 
 ```bash
@@ -278,4 +322,5 @@ the same buttons (with or without checkpoints). Single checks can be re-run at a
 | `torch.cuda.is_available() == False` | the driver is too old for CUDA 12.8, or torch is a CPU wheel; check `python -c "import torch; print(torch.version.cuda)"` |
 | HF download stalls or 401 | `huggingface-cli login`, or set `HF_TOKEN`; then retry `scripts/download_data.sh` (it resumes) |
 | `tests_gpu` skipped | CUDA is not visible or the weights are not in the HF cache; set `MONET7B_PATH=/path/to/Monet-7B` |
+| `TypeError` / crash in the `memory` step, all micro-batches failing | the step now names the crash; it is a bug, not memory. Send `results/preflight/08_memory.log` (or a bundle) |
 | GPU share not handed over / run starts with less memory than expected | `bash scripts/gpu_hold.sh status`; a process that never exits keeps its lease (`leases`). See `~/.cache/monet_action/gpu_hold/gpu0/holder.log` |

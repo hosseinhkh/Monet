@@ -16,10 +16,22 @@ RGB (agent + wrist) + instruction + 8D state + TOOL_RESULT (previously executed 
 
 ## Status
 
-The code, configs, tests, monitoring and scripts for G0–G3 are complete. Everything that can run without a
-GPU was run in this repository's CPU container:
+The code, configs, tests, monitoring and scripts for G0–G3 are complete.
 
-* the full test suite: 173 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
+**On the GPU server (one 96 GB Blackwell card, 50% of GPU 0 reserved):** the full preflight
+(`bash scripts/preflight.sh`) passed every step and printed `READY TO TRAIN`. That includes:
+
+* the real Monet-7B tests (complete weights, finite latents, parity with the authors' code, LoRA gradients);
+* the G0 audit;
+* the memory profile;
+* the real-model dry run of every variant and of the whole evaluation pipeline;
+* the G1 smoke overfit.
+
+Its logs and reports stay on the server, in `results/preflight/` and `results/audit/`.
+
+**In this repository's CPU container:**
+
+* the full test suite: 174 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
 * the whole pipeline dry run (`MODEL=tiny bash scripts/dry_run.sh`): 6 training variants, warm-start chains, in-training simulator checks, all 21 evaluation runs and the report;
 * the G0 audit (`results/audit/g0_report_tiny.*`);
 * a tiny overfit;
@@ -28,14 +40,9 @@ GPU was run in this repository's CPU container:
 
 The "tiny" runs use Monet's *real* modeling code with a tiny random configuration.
 
-**Not yet run (needs the 96 GB GPU):**
-
-* any Monet-7B forward pass (`make test-monet7b`, `make audit`);
-* D0–D5 training;
-* the closed-loop LIBERO-Spatial evaluation;
-* latency and cost numbers.
-
-There are **no task-success results** yet. Nothing here is evidence for or against the hypothesis.
+**Not yet run:** the D0–D5 training runs, the closed-loop LIBERO-Spatial evaluation, and the latency and
+cost measurements. There are **no task-success results** yet. Nothing here is evidence for or against the
+hypothesis.
 
 ## Quick start on the GPU server
 
@@ -46,11 +53,18 @@ The full step-by-step guide, with pass criteria, monitoring and troubleshooting,
 git clone https://github.com/hosseinhkh/Monet.git && cd Monet && git checkout claude/friendly-goldberg-6d4ukm && cd monet_action
 bash scripts/setup_env.sh && conda activate monet_action   # isolated conda env (torch 2.7.1 cu128, transformers 4.54.0, LIBERO@8f1084e)
 bash scripts/download_data.sh      # lerobot/libero_spatial_image@d86c0b9 (~6.5 GB) + Monet-7B@39c1e32 (~16.6 GB)
+cp env.local.example env.local     # optional, shared card: GPU_ID=0, reserve + cap 50% (MONET_GPU_RESERVE), keep it between runs (MONET_GPU_HOLD)
+tmux new -s phase1                 # long steps below: run them inside tmux (detach Ctrl-b d, reattach: tmux attach -t phase1)
 bash scripts/preflight.sh          # env, data, weights, render, all tests, REAL Monet-7B tests, audit, memory, dry run, smoke -> READY TO TRAIN
 bash scripts/train_all.sh          # D0, D1, D2 (from D1@10k), D0-LoRA (from D0@10k), D4, D5; EXTRA=1 adds K sweep + ablations
 bash scripts/evaluate_all.sh       # 10 tasks x 3 seeds x 10 eps, E=1/2, D3 + bypass interventions, 2/4/8 steps, latency, report
 make dashboard                     # monitoring on 127.0.0.1:8765 (from your laptop: ssh -N -L 8765:localhost:8765 <server>)
+bash scripts/gpu_hold.sh stop      # when Phase 1 is done: give the reserved GPU share back
 ```
+
+* **Sharing the GPU.** With `env.local` from the example, every run claims 50% of GPU 0 before it loads
+  anything and is capped there. A background holder keeps that share between runs until
+  `bash scripts/gpu_hold.sh stop`. See RUNBOOK §5b.
 
 * **Resuming.** Re-running a training command resumes deterministically: model, optimiser, RNG and
   data-sampler position come back from `runs/<name>/last`. Evaluation resumes from `episodes.jsonl`.
@@ -107,6 +121,19 @@ and environment info for later debugging. Checkpoint weights are added only with
 | K sweep | frozen | 5, 20 | self-fed | as D1 | `d1_k5.yaml`, `d1_k20.yaml` |
 | ablations | frozen | 10 | self-fed | latents-only conditioning; no previous action in TOOL_RESULT; SFT-stage latent layout | `d1_latents_only.yaml`, `d1_no_toolresult.yaml`, `d1_sft_convention.yaml` |
 
+**What is trained: no full fine-tuning in Phase 1.** Monet-7B's 7B base weights, vision tower included,
+stay frozen in every variant:
+
+* **Frozen variants (D0, D1, D4, D5, K sweep, ablations).** Only the small task modules train: the state
+  and TOOL_RESULT projectors, the conditioner, and the action head (DiT; an MLP for D5). D4 also trains its
+  K learned query embeddings. Each runs 20k steps.
+* **LoRA variants (D2, D0-LoRA, D4-LoRA).** Same modules plus LoRA adapters: r=16, α=32, dropout 0.05, on
+  q/k/v/o of decoder layers 20–27, the last 8 of 28. That is about 2.9M adapter parameters.
+  * Stage A is the first 10k steps of the frozen run (D1, or D0 for D0-LoRA).
+  * Stage B is 10k joint steps from that checkpoint, so every variant gets 20k head updates.
+* **Batch.** Every variant uses an effective batch of 16 windows (micro-batch × gradient accumulation;
+  the preflight picks the micro-batch). Learning rates: 1e-4 for the head and projectors, 5e-5 for LoRA.
+
 An optional external baseline (official GR00T N1.7 LIBERO checkpoint, separate environment, not
 comparable as-is) is described in [docs/EXTERNAL_BASELINES.md](docs/EXTERNAL_BASELINES.md).
 
@@ -140,10 +167,16 @@ monet_action/
     report.py           results/phase1_report.md from evaluation outputs
     audit.py            G0 audit (sources, Monet latents + parity, data batch, simulator I/O)
     logging_utils.py    RunMonitor: logs, status heartbeat, events, system metrics
+    preflight.py        PASS/WARN/FAIL checks behind scripts/preflight.sh (env, data, weights, render, tests, audit, memory, overfit)
+    runtime_env.py      env.local + GPU pinning (GPU_ID -> CUDA_VISIBLE_DEVICES, MUJOCO_EGL_DEVICE_ID) before torch starts
+    gpu.py              setup_gpu: holder hand-over, per-process cap (MONET_GPU_LIMIT), up-front claim (MONET_GPU_RESERVE)
+    gpu_hold.py         background holder keeping the GPU share claimed between runs (scripts/gpu_hold.sh)
     dashboard/          local monitoring web app (stdlib server + vanilla JS)
     bundle.py           debug zip bundles (CLI + dashboard)
   tests/              see the table below; markers slow / sim / tokenizer / gpu
-  scripts/            setup, downloads, audit, smoke, train_d{0,1,2,4,5}, evaluate_all, run_phase1, dashboard, cpu_validation
+  scripts/            setup_env, download_data, preflight, profile_memory, dry_run, smoke_overfit, train_all, train_d{0,0_lora,1,2,4,5},
+                      evaluate_all, run_phase1, gpu_hold, dashboard, audit_upstream, cpu_validation (all source common.sh)
+  env.local.example   machine-local settings (copy to env.local, git-ignored): GPU_ID, MONET_GPU_RESERVE, MONET_GPU_HOLD, HF_HOME
   results/            audit/ (G0 reports), cpu_validation/ (tiny-model evidence)
 ```
 
@@ -205,6 +238,8 @@ parity tests compare against.
 
 * **Training throughput.** About 10 TFLOP per sample: a ~230-token Monet-7B prefill, 10 latent steps and
   a backward pass to the projectors and LoRA. 20k steps × 16 samples is a few GPU-hours per variant.
+  The measured s/step per micro-batch is in `results/preflight/memory_profile.json`, and each run's ETA is
+  on the dashboard.
 * **Memory.** bf16 weights use about 16.6 GB. Measure activations with `scripts/profile_memory.sh`. If
   memory is tight, switch to `monet.recurrence_impl=recompute` with
   `monet.gradient_checkpointing=true`.
@@ -212,8 +247,12 @@ parity tests compare against.
 
 ## Known limitations / open risks
 
-* Monet-7B has not been executed by this code yet. Run `make test-monet7b` and `make audit` first; they
-  must show complete weights, finite latents and bf16-level parity.
+* Monet-7B runs correctly in this code on the GPU server (preflight `tests_gpu` and `audit`), but no
+  training run is complete yet. If a run misbehaves, re-run `bash scripts/preflight.sh --only tests_gpu`
+  first. It must show complete weights, finite latents and bf16-level parity.
+* HF `generate()` does not work with the authors' model class. Their `forward` computes logits only for
+  their SFT loss, and their inference uses vLLM. This code never needs text generation; the sanity check
+  decodes greedily through the text decoder (`monet_loader.greedy_text_decode`).
 * The real vLLM runner is not used. Parity is checked against an exact emulation of its state machine.
 * Action history in TOOL_RESULT can cause copycat behaviour. It is mitigated with dropout and measured
   by the ablation.

@@ -327,11 +327,26 @@ def check_memory(summary: str, budget_gb: float = 85.0) -> int:
     elif not fit:
         r.append(("FAIL", "recommended micro-batch", f"nothing fits in {budget_gb} GB - use monet.recurrence_impl=recompute monet.gradient_checkpointing=true"))
     else:
-        b = max(x["batch_size"] for x in fit)
-        accum = max(1, 16 // b)
-        r.append(("PASS", "recommended micro-batch", f"train.batch_size={b} train.grad_accum={accum} (effective {b * accum})"))
+        # keep the configs' effective batch (base.yaml: 8 x 2 = 16) for every variant: the largest micro-batch
+        # that fits AND divides it, the rest by gradient accumulation
+        eff = effective_batch()
+        div = [x["batch_size"] for x in fit if eff % x["batch_size"] == 0]
+        b = max(div) if div else max(x["batch_size"] for x in fit)
+        accum = max(1, round(eff / b))
+        larger = sorted(x["batch_size"] for x in fit if x["batch_size"] > b)
+        note = f"; {larger} also fit{'s' if len(larger) == 1 else ''} but do not divide {eff}" if larger else ""
+        r.append(("PASS" if b * accum == eff else "WARN", "recommended micro-batch",
+                  f"train.batch_size={b} train.grad_accum={accum} (effective {b * accum}, configs: {eff}{note})"))
         (p.parent / "recommended_batch.txt").write_text(f"train.batch_size={b} train.grad_accum={accum}\n")
     return _report(r)
+
+
+def effective_batch() -> int:
+    """Effective batch (micro-batch x accumulation) the Phase-1 configs are tuned for (configs/base.yaml)."""
+    from .config import load_config
+
+    t = load_config(str(ROOT / "configs" / "base.yaml")).train
+    return int(t.batch_size * t.grad_accum)
 
 
 def check_overfit(run: str) -> int:
