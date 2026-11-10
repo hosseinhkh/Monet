@@ -19,7 +19,8 @@ RGB (agent + wrist) + instruction + 8D state + TOOL_RESULT (previously executed 
 The code, configs, tests, monitoring and scripts for G0–G3 are complete. Everything that can run without a
 GPU was run in this repository's CPU container:
 
-* the full test suite: 145 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
+* the full test suite: 148 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
+* the whole pipeline dry run (`MODEL=tiny bash scripts/dry_run.sh`): 6 training variants, warm-start chains, in-training simulator checks, all 21 evaluation runs and the report;
 * the G0 audit (`results/audit/g0_report_tiny.*`);
 * a tiny overfit;
 * a real-LIBERO closed-loop trace;
@@ -46,10 +47,12 @@ bash scripts/download_libero_raw.sh   # optional: one raw LIBERO demo file (~0.5
 make dashboard &                   # monitoring UI on 127.0.0.1:8765 (from your laptop: ssh -L 8765:localhost:8765 <server>)
 bash scripts/audit_upstream.sh     # G0 on the REAL Monet-7B: audit report + Monet-7B GPU tests + all other tests
 bash scripts/profile_memory.sh configs/d2_lora.yaml   # pick micro-batch from measured peak memory
+MODEL=real bash scripts/dry_run.sh # every variant x 6 steps + the complete evaluation script + report (~1 h); must print DRY RUN OK
 bash scripts/smoke_overfit.sh      # G1: overfit 32 windows with Monet-7B + 2-task closed-loop smoke rollout
 bash scripts/train_d0.sh           # D0  frozen Monet, K=0
 bash scripts/train_d1.sh           # D1  frozen Monet, K=10
 bash scripts/train_d2.sh           # D2  LoRA, K=10: 10k joint steps from D1@10k (budget-matched)
+bash scripts/train_d0_lora.sh      # D0-LoRA  matched control for D2 (same LoRA + budget, K=0)
 bash scripts/train_d4.sh           # D4  matched-compute learned-query control
 bash scripts/train_d5.sh           # D5  MLP head engineering control
 bash scripts/evaluate_all.sh       # G3: 10 tasks x 3 seeds x 10 eps, E=1/2, D3 + bypass interventions, 2/4/8 steps, latency, report
@@ -62,6 +65,10 @@ bash scripts/evaluate_all.sh       # G3: 10 tasks x 3 seeds x 10 eps, E=1/2, D3 
   `python -m monet_action.train --config configs/d1_k10.yaml --override train.batch_size=12 monet.num_latents=5`.
 * **Developer workflow.** Per-component tests, lint and pre-commit are described in
   [DEVELOPMENT.md](DEVELOPMENT.md).
+
+**Start here:** [docs/BIG_PICTURE.md](docs/BIG_PICTURE.md). It covers the diagrams, which comparison
+answers which question, the pass criteria before long GPU runs, the proposal assessment, the power
+analysis, the compute budget, and how to read the results.
 
 ## Monitoring, logs and debug bundles
 
@@ -99,6 +106,8 @@ and environment info for later debugging. Checkpoint weights are added only with
 | D0 | frozen | 0 | none | state + TOOL_RESULT projectors, conditioner, DiT | `d0_k0.yaml` |
 | D1 | frozen | 10 | genuine self-fed recurrence | same as D0 (identical parameter count, tested) | `d1_k10.yaml` |
 | D2 | LoRA q/k/v/o, layers 20–27 | 10 | self-fed; FM loss back-propagated through all K steps | D1 + LoRA. Stage A = D1's first 10k steps; stage B = 10k joint steps (20k head updates total) | `d2_lora.yaml` |
+| D0-LoRA | LoRA q/k/v/o, layers 20–27 | 0 | none | D0 + LoRA, same stage-A/B structure as D2 | `d0_k0_lora.yaml` |
+| D4-LoRA (optional) | LoRA | 10 slots | learned queries, no feedback | D4 + LoRA | `d4_query_lora.yaml` |
 | D3 | D2 at eval | 10 | latents zeroed / masked / order-shuffled / truncated / Gaussian / swapped; `mask_vl` and `mask_all` bypass checks | — (diagnostic, OOD) | `--intervention …` |
 | D4 | frozen | 10 slots | trainable query embeddings at the same slots, no feedback | D1 + K×3584 queries | `d4_query.yaml` |
 | D5 | frozen | 10 | self-fed | MLP regression head (control only) | `d5_mlp.yaml` |
@@ -116,7 +125,7 @@ monet_action/
   Makefile    one target per component test, audits, dashboard, bundle, lint
   docs/       DASHBOARD.md, UPSTREAM_CODE_REVIEW.md, EXTERNAL_BASELINES.md, PHASE2_EXTENSION_POINTS.md
   environment/ train/sim/dev requirements, cpu_validation_lock.txt (server_lock.txt written on setup)
-  configs/    base + d0_k0 d1_k5 d1_k10 d1_k20 d2_lora d4_query d5_mlp d1_latents_only d1_no_toolresult d1_sft_convention,
+  configs/    base + d0_k0 d0_k0_lora d1_k5 d1_k10 d1_k20 d2_lora d4_query d4_query_lora d5_mlp d1_latents_only d1_no_toolresult d1_sft_convention,
               audit, smoke, eval, eval_smoke, tiny_cpu
   src/monet_action/
     monet_loader.py     loads the authors' modeling file under a private name; tiny random Monet for tests
@@ -193,7 +202,9 @@ parity tests compare against.
   * Resets are seeded per (task, init state), so every variant sees pixel-identical starting
     observations.
   * The seed also sets the DiT noise.
-  * Execution: 10 environments run in lock-step with batched CALL_ACTION.
+  * Execution: 10 environments run in lock-step with batched CALL_ACTION, reused across seeds.
+  * Frames: simulator frames get a JPEG round-trip (`eval.jpeg_quality=90`), matching the JPEG history
+    of the training images.
   * Optional closed-loop checks during training (`train.sim_eval_every`, on development states, never
     fatal).
 

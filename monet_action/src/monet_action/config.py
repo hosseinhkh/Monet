@@ -201,7 +201,6 @@ class TrainConfig:
     system_monitor_interval_s: float = 30.0
     tensorboard: bool = False  # also write TensorBoard scalars (needs the tensorboard package)
     deterministic: bool = False
-    compile: bool = False
 
 
 @dataclass
@@ -220,6 +219,9 @@ class EvalConfig:
     num_inference_steps: Optional[int] = None  # override flow steps (2/4/8)
     num_parallel_envs: int = 10
     camera_size: int = 256
+    # JPEG round-trip applied to simulator frames before the policy sees them, matching the JPEG
+    # history of the training images (measured in G0). 0/null disables.
+    jpeg_quality: Optional[int] = 90
     save_videos: int = 2  # per task per seed
     # D3 latent interventions: zero|mask|shuffle_order|truncate:k|gaussian|swap
     # bypass diagnostics: mask_vl (hide VL context, keep latents) | mask_all (unconditioned head)

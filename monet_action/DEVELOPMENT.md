@@ -38,6 +38,7 @@ touch `monet_action/`.
 | everything | `make test-all` |
 | lint / autofix | `make lint` / `make format` |
 | G0 audit | `make audit-cpu` (tiny) / `make audit` (Monet-7B) |
+| whole-pipeline dry run | `MODEL=tiny bash scripts/dry_run.sh` (CPU) / `MODEL=real bash scripts/dry_run.sh` (GPU) |
 | monitor runs | `make dashboard` (then `ssh -L 8765:localhost:8765 <server>`) |
 | debug zip | `make bundle RUN=runs/d1_k10` or the dashboard's download buttons |
 

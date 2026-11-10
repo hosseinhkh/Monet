@@ -208,8 +208,15 @@ class Collator:
     """
 
     def __init__(self, prompt_builder, normalizer: ActionStateNormalizer, augment: bool = False, seed: int = 0):
-        self.pb, self.norm, self.augment = prompt_builder, normalizer, augment
-        self.rng = np.random.default_rng(seed)
+        self.pb, self.norm, self.augment, self.seed = prompt_builder, normalizer, augment, seed
+        self._rng: Optional[np.random.Generator] = None
+
+    @property
+    def rng(self) -> np.random.Generator:
+        if self._rng is None:  # created lazily inside each worker so workers do not share a stream
+            wi = torch.utils.data.get_worker_info()
+            self._rng = np.random.default_rng([self.seed, wi.id if wi is not None else 0])
+        return self._rng
 
     def __call__(self, samples: List[Dict]) -> Dict:
         views = [s["images"] for s in samples]

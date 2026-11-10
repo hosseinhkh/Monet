@@ -1,0 +1,13 @@
+_base_: d2_lora.yaml
+name: d4_query_lora
+variant: D4-LoRA
+description: >-
+  Matched-compute control for D2 under joint training: LoRA + K=10 trainable query slots without
+  hidden-state self-feedback, stage B from the D4 stage-A checkpoint at 10k (10k joint steps).
+monet:
+  num_latents: 10
+  reasoning_mode: learned_query
+  learned_query_parallel: true
+train:
+  output_dir: runs/d4_query_lora
+  init_from: runs/d4_query/ckpt_0010000

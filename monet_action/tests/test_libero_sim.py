@@ -117,3 +117,31 @@ def test_recorded_demo_replays_to_success(env0):
         if done:
             break
     assert done, "replayed demonstration did not succeed - check controller / gripper conventions"
+
+
+def _blockiness(a):
+    g = np.abs(np.diff(a.astype(np.float32).mean(-1), axis=1))
+    c = np.arange(g.shape[1])
+    return g[:, (c % 8) == 7].mean() / g[:, (c % 8) != 7].mean()
+
+
+def test_eval_jpeg_roundtrip_matches_training_image_statistics(data_root):
+    """Training frames carry JPEG 8x8 block artefacts; evaluation frames get a JPEG round-trip
+    (eval.jpeg_quality) so the policy sees the same image statistics."""
+    from monet_action.config import EvalConfig
+    from monet_action.libero_dataset import LeRobotLiberoFrames
+    from monet_action.libero_env import LiberoEnv, jpeg_roundtrip
+
+    frames = LeRobotLiberoFrames(data_root, file_limit=1)
+    ds = np.mean([_blockiness(frames.image("image", e.start)) for e in frames.episodes])
+    q = EvalConfig().jpeg_quality
+    env = LiberoEnv("libero_spatial", 6, camera_size=256, seed=0)
+    try:
+        raw = [env.reset(i, num_wait_steps=1).images["image"] for i in (0, 1)]
+    finally:
+        env.close()
+    b_raw = np.mean([_blockiness(im) for im in raw])
+    b_jpg = np.mean([_blockiness(jpeg_roundtrip(im, q)) for im in raw])
+    assert abs(b_jpg - ds) < abs(b_raw - ds), (ds, b_raw, b_jpg)
+    out = jpeg_roundtrip(raw[0], q)
+    assert out.shape == raw[0].shape and out.dtype == np.uint8 and jpeg_roundtrip(raw[0], None) is raw[0]

@@ -62,9 +62,24 @@ class EnvStep:
     diagnostics: Dict[str, Any] = field(default_factory=dict)
 
 
-def raw_obs_to_policy(obs: Dict[str, np.ndarray], instruction: str) -> PolicyObservation:
-    img = np.ascontiguousarray(obs["agentview_image"][::-1, ::-1])
-    wrist = np.ascontiguousarray(obs["robot0_eye_in_hand_image"][::-1, ::-1])
+def jpeg_roundtrip(img: np.ndarray, quality: Optional[int]) -> np.ndarray:
+    """Encode/decode with JPEG. The LeRobot/OpenVLA training images carry JPEG artefacts (8x8
+    block-boundary ratio ~1.11 agent / ~1.03 wrist vs ~0.95-1.0 for clean renders; matched by
+    quality ~85-90, see AUDIT.md), so evaluation frames get the same treatment."""
+    if not quality:
+        return img
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.fromarray(img).save(buf, format="JPEG", quality=int(quality))
+    return np.asarray(Image.open(io.BytesIO(buf.getvalue())).convert("RGB"))
+
+
+def raw_obs_to_policy(obs: Dict[str, np.ndarray], instruction: str, jpeg_quality: Optional[int] = None) -> PolicyObservation:
+    img = jpeg_roundtrip(np.ascontiguousarray(obs["agentview_image"][::-1, ::-1]), jpeg_quality)
+    wrist = jpeg_roundtrip(np.ascontiguousarray(obs["robot0_eye_in_hand_image"][::-1, ::-1]), jpeg_quality)
     state = np.concatenate([obs["robot0_eef_pos"], quat2axisangle(obs["robot0_eef_quat"]),
                             obs["robot0_gripper_qpos"]]).astype(np.float32)
     return PolicyObservation(images={"image": img, "wrist_image": wrist}, state=state, instruction=instruction)
@@ -79,8 +94,10 @@ def libero_task_table(suite_name: str = "libero_spatial"):
 
 
 class LiberoEnv:
-    def __init__(self, suite_name: str, task_id: int, camera_size: int = 256, seed: int = 0):
+    def __init__(self, suite_name: str, task_id: int, camera_size: int = 256, seed: int = 0,
+                 jpeg_quality: Optional[int] = None):
         _ensure_gl_backend()
+        self.jpeg_quality = jpeg_quality
         import torch
         from libero.libero import benchmark, get_libero_path
         from libero.libero.envs import OffScreenRenderEnv
@@ -122,7 +139,7 @@ class LiberoEnv:
             obs, _, _, _ = self.env.step(LIBERO_DUMMY_ACTION.tolist())
         self.t = 0
         self._last_raw = obs
-        return raw_obs_to_policy(obs, self.instruction)
+        return raw_obs_to_policy(obs, self.instruction, self.jpeg_quality)
 
     def step(self, action: np.ndarray) -> EnvStep:
         action = np.asarray(action, dtype=np.float32).reshape(7)
@@ -130,7 +147,7 @@ class LiberoEnv:
         self.t += 1
         self._last_raw = obs
         diag = {"sim_success": bool(done), "t": self.t}
-        return EnvStep(raw_obs_to_policy(obs, self.instruction), float(reward), bool(done), diag)
+        return EnvStep(raw_obs_to_policy(obs, self.instruction, self.jpeg_quality), float(reward), bool(done), diag)
 
     def check_success(self) -> bool:
         return bool(self.env.check_success())

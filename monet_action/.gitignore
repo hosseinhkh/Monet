@@ -9,3 +9,5 @@ results/eval/**/videos/
 !scripts/
 !results/**/logs/
 .ruff_cache/
+runs_dry/
+results/dry_run/

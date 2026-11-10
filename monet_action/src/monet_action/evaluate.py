@@ -75,11 +75,14 @@ def warm_latent_bank(policy, ec: EvalConfig, task_ids: List[int]) -> None:
     from .libero_env import LiberoEnv
 
     for t in task_ids:
-        env = LiberoEnv(ec.suite, t, ec.camera_size, 0)
+        env = LiberoEnv(ec.suite, t, ec.camera_size, 0, jpeg_quality=ec.jpeg_quality)
         obs = env.reset(len(env.init_states) - 1, ec.num_wait_steps)  # dev block (49), never a final-eval state
         pred = policy.predict([obs], num_steps=1)
         policy.latent_bank.add(pred.latents, [t])
         env.close()
+    if len(set(task_ids)) < 2:
+        get_logger("monet_action.eval").warning(
+            "swap intervention needs >= 2 tasks; with %d task(s) latents are left unchanged", len(set(task_ids)))
 
 
 def init_state_indices(ec: EvalConfig, seed_index: int) -> List[int]:
@@ -126,14 +129,18 @@ def _closed_loop(policy, cfg, ec: EvalConfig, out_dir: Path, tag: str, mon: Opti
     if mon is not None:
         mon.update(episodes_done=n_done)
     reset_peak_memory()
-    for si, seed in enumerate(ec.seeds):
-        for t in task_ids:
-            idxs = [i for i in init_state_indices(ec, si) if (seed, t, i) not in done_keys]
-            if not idxs:
-                continue
-            P = max(1, min(ec.num_parallel_envs, len(idxs)))
-            envs = [LiberoEnv(ec.suite, t, ec.camera_size, seed) for _ in range(P)]
-            try:
+    # Environments are built once per task and reused for every seed: resets are seeded per
+    # (task, init state), so the construction seed does not influence episodes.
+    for t in task_ids:
+        todo = {si: [i for i in init_state_indices(ec, si) if (seed, t, i) not in done_keys]
+                for si, seed in enumerate(ec.seeds)}
+        if not any(todo.values()):
+            continue
+        P = max(1, min(ec.num_parallel_envs, max(len(v) for v in todo.values())))
+        envs = [LiberoEnv(ec.suite, t, ec.camera_size, 0, jpeg_quality=ec.jpeg_quality) for _ in range(P)]
+        try:
+            for si, seed in enumerate(ec.seeds):
+                idxs = todo[si]
                 for c0 in range(0, len(idxs), P):
                     chunk = idxs[c0:c0 + P]
                     g = torch.Generator().manual_seed(  # CPU generator: noise is drawn on CPU then moved
@@ -161,9 +168,9 @@ def _closed_loop(policy, cfg, ec: EvalConfig, out_dir: Path, tag: str, mon: Opti
                     if mon is not None:
                         mon.update(episodes_done=n_done, step=n_done)
                         mon.event("episodes", seed=seed, task_id=t, init_states=chunk, successes=k, n=len(recs))
-            finally:
-                for e in envs:
-                    e.close()
+        finally:
+            for e in envs:
+                e.close()
     records = [json.loads(line) for line in ep_file.read_text().splitlines() if line.strip()]
     summary = aggregate_episodes(records, ec.gpu_hourly_cost_usd)
     summary.update({"num_inference_steps": steps, "execution_prefix": ec.execution_prefix,

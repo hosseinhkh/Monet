@@ -1,0 +1,12 @@
+_base_: d2_lora.yaml
+name: d0_k0_lora
+variant: D0-LoRA
+description: >-
+  Matched control for D2. Same LoRA (q/k/v/o, layers 20-27, r=16), same stage-B budget (10k joint steps
+  from the D0 stage-A checkpoint at 10k), but K=0. D2 vs D0-LoRA isolates the latent recurrence under joint
+  training; D2 vs D0 confounds it with LoRA adaptation of Monet's VL features.
+monet:
+  num_latents: 0
+train:
+  output_dir: runs/d0_k0_lora
+  init_from: runs/d0_k0/ckpt_0010000

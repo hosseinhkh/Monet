@@ -33,16 +33,16 @@ def offline_metrics(policy, loader, max_batches: int = 50, num_steps: int = 4, s
         B = batch["actions"].shape[0]
         t = torch.rand(B, generator=g) * 0.999
         noise = torch.randn(B, H, A, generator=g)
-        loss, _ = policy.compute_loss(batch, t=t, noise=noise)
         inputs = batch["monet_inputs"].to(dev)
         state = batch["state"].to(dev)
-        with policy._autocast():
+        tgt, mask = batch["actions"].to(dev), batch["loss_mask"].to(dev)
+        st = state if policy.cfg.state.state_to_action_head else None
+        with policy._autocast():  # one Monet pass serves both the loss and the sampled chunk
             cond, _ = policy.encode(inputs, state, prev_actions=batch.get("prev_actions"),
                                     prev_valid=batch.get("prev_valid"))
-            pred = policy.action_head.sample(cond.tokens.float(), cond.mask,
-                                             state=state if policy.cfg.state.state_to_action_head else None,
-                                             num_steps=num_steps, noise=torch.randn(B, H, A, generator=g))
-        tgt, mask = batch["actions"].to(dev), batch["loss_mask"].to(dev)
+            loss, _ = policy.action_head.loss(tgt, mask, cond.tokens, cond.mask, state=st, t=t, noise=noise)
+            pred = policy.action_head.sample(cond.tokens.float(), cond.mask, state=st, num_steps=num_steps,
+                                             noise=torch.randn(B, H, A, generator=g))
         tot["fm_loss"] += float(loss)
         tot["action_mse"] += float(masked_mse(pred, tgt, mask))
         tot["action_mse_first"] += float(masked_mse(pred[:, :1], tgt[:, :1], mask[:, :1]))

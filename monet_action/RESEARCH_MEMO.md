@@ -23,13 +23,24 @@ latent steps (K=0)? Secondary question: is any gain worth its extra GPU time and
 
 * **Unit of analysis.** One episode, identified by (seed, task, init state). The same keys are used for
   every variant, so all comparisons are paired.
-* **Primary contrasts.** D1 vs D0 and D2 vs D0. Report:
+* **Primary contrasts.**
+  * D1 vs D0: frozen Monet, so K is the only difference.
+  * D2 vs D0-LoRA: joint training with identical LoRA, budget and warm-start structure; K is the only
+    difference.
+  * D2 vs D0, as written in the original proposal, is also reported. It is labelled *confounded*,
+    because LoRA adaptation of the VL features differs too.
+
+  For each primary contrast, report:
   * the success difference with a paired bootstrap 95% CI;
   * the exact McNemar p-value;
   * per-task counts.
   With two primary contrasts, use Holm correction at α=0.05.
-* **Secondary contrasts.** D2 vs D1 (effect of LoRA) and D1 vs D4 (self-feedback vs matched compute),
-  each with the same statistics.
+* **Secondary contrasts.** Each uses the same statistics:
+  * D2 vs D1: the effect of LoRA;
+  * D1 vs D4 and D2 vs D4-LoRA: self-feedback vs matched compute.
+* **Power.** At 300 paired episodes, a true +5 pp gain is significant only 31–70% of the time and +8 pp
+  67–100% of the time (see docs/BIG_PICTURE.md §4). Small effects require more episodes or training
+  seeds before any claim.
 * **Exploratory.**
   * K sweep {0, 5, 10, 20} (frozen Monet): report success and latency vs K. No multiplicity claims.
   * Latents-only conditioning.
@@ -58,6 +69,7 @@ latent steps (K=0)? Secondary question: is any gain worth its extra GPU time and
 | D0 | | — | — | | |
 | D1 | | | | | |
 | D2 | | | | | |
+| D0-LoRA | | — (compare with D2) | | | |
 | D4 | | | | | |
 
 ## 4. Interpretation (only what the numbers support)

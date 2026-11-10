@@ -1,18 +1,6 @@
-........................................................................ [ 49%]
-........................................................................ [ 99%]
-.                                                                        [100%]
-=============================== warnings summary ===============================
-../../venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:53
-  /home/user/venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:53: DeprecationWarning: The 'warn' method is deprecated, use 'warning' instead
-    ROBOSUITE_DEFAULT_LOGGER.warn("No private macro file found!")
-
-../../venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:54
-  /home/user/venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:54: DeprecationWarning: The 'warn' method is deprecated, use 'warning' instead
-    ROBOSUITE_DEFAULT_LOGGER.warn("It is recommended to use a private macro file")
-
-../../venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:55
-  /home/user/venvs/monet_action/lib/python3.11/site-packages/robosuite/macros.py:55: DeprecationWarning: The 'warn' method is deprecated, use 'warning' instead
-    ROBOSUITE_DEFAULT_LOGGER.warn("To setup, run: python {}/scripts/setup_macros.py".format(robosuite.__path__[0]))
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-145 passed, 1 skipped, 3 warnings in 120.97s (0:02:00)
+........................................................................ [ 48%]
+........................................................................ [ 97%]
+....                                                                     [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_monet7b_gpu.py:40: no CUDA device
+148 passed, 1 skipped in 133.39s (0:02:13)
