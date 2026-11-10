@@ -280,12 +280,11 @@ def main(argv=None) -> None:
     if a.mode == "compare":
         print(compare(a.dirs, a.out))
         return
+    from .gpu import setup_gpu
     from .train import load_policy_from_checkpoint
 
+    setup_gpu(a.device)  # before loading: GPU-holder hand-over, cap, MONET_GPU_RESERVE (scripts/common.sh pins GPU 0)
     policy, cfg, meta = load_policy_from_checkpoint(a.checkpoint, a.device, a.override, a.tokenizer_path)
-    from .gpu import setup_gpu
-
-    setup_gpu(a.device)  # GPU 0 (pinned in scripts/common.sh); optional MONET_GPU_RESERVE
     ec = _eval_cfg(cfg, a)
     default_name = f"{cfg.variant}_{cfg.name}" + (f"_{ec.intervention.replace(':', '')}" if getattr(ec, "intervention", None) else "")
     out_dir = Path(a.output_dir or Path(ec.output_dir) / default_name)

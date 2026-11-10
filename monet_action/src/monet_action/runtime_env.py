@@ -6,13 +6,33 @@ Existing environment variables always win.
 * ``GPU_ID`` (default ``0``, or ``auto`` = the card with the most free memory, numbered as in nvidia-smi)
   -> ``CUDA_VISIBLE_DEVICES`` + ``MUJOCO_EGL_DEVICE_ID`` with ``CUDA_DEVICE_ORDER=PCI_BUS_ID``.
 * ``MUJOCO_GL`` / ``PYOPENGL_PLATFORM``: ``egl`` when an NVIDIA GPU is present, else ``osmesa``.
+* ``monet_action/env.local`` (optional, git-ignored) is read first, e.g. ``MONET_GPU_RESERVE=0.5``.
 """
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+ENV_LOCAL = Path(__file__).resolve().parents[2] / "env.local"
+
+
+def read_env_local(path: Path = ENV_LOCAL) -> Dict[str, str]:
+    """Machine-local settings (git-ignored): ``KEY=VALUE`` or ``export KEY=VALUE`` lines, ``#`` comments."""
+    out: Dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text().splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip().strip("'\"")
+    return out
 
 
 def nvidia_smi_gpus() -> List[Tuple[int, str, float, float]]:
@@ -41,6 +61,8 @@ def pick_gpu(spec: Optional[str]) -> Optional[str]:
 
 
 def apply_defaults() -> None:
+    for k, v in read_env_local().items():  # env.local < explicit environment variables
+        os.environ.setdefault(k, v)
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
     os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")

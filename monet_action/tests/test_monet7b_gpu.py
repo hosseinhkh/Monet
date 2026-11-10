@@ -54,10 +54,12 @@ def _cos(a, b):
 @pytest.fixture(scope="module")
 def stack(data_root):
     from monet_action.config import load_config
+    from monet_action.gpu import setup_gpu
     from monet_action.libero_dataset import LeRobotLiberoFrames
     from monet_action.monet_loader import load_monet, load_processor
     from monet_action.normalization import Stats
 
+    REPORT["gpu_setup"] = setup_gpu("cuda")  # GPU-holder hand-over + MONET_GPU_RESERVE, as training does
     cfg = load_config(str(ROOT / "configs" / "d1_k10.yaml"), [f"monet.model_path={WEIGHTS}", "monet.model_revision=null"])
     t0 = time.time()
     torch.cuda.reset_peak_memory_stats()

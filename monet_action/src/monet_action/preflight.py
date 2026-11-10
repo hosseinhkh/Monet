@@ -83,6 +83,17 @@ def check_env(allow_cpu: bool = False) -> int:
     except Exception as e:  # pragma: no cover
         r.append(("FAIL", "LIBERO import", repr(e)))
     if torch.cuda.is_available():
+        from .gpu_hold import acquire_lease, hold_dir, holder_pid, read_state
+
+        hd = hold_dir()
+        hp, st0 = holder_pid(hd), read_state(hd)
+        leased = acquire_lease()  # before any CUDA memory use: the holder hands its share over to this check
+        if hp is not None:
+            r.append(("PASS" if leased else "WARN", "GPU holder (MONET_GPU_HOLD)",
+                      f"pid {hp} was {st0.get('state')} {st0.get('held_gb', 0):.0f}/{st0.get('target_gb', 0):.0f} GB; "
+                      f"{'handed over to this check' if leased else 'no hand-over'} (stop: bash scripts/gpu_hold.sh stop)"))
+        elif os.environ.get("MONET_GPU_HOLD", "0") == "1":
+            r.append(("WARN", "GPU holder (MONET_GPU_HOLD=1)", f"not running: bash scripts/gpu_hold.sh start (log {hd / 'holder.log'})"))
         p = torch.cuda.get_device_properties(0)
         mem = p.total_memory / 1024 ** 3
         r.append(("PASS", "GPU", f"{p.name} sm_{p.major}{p.minor} {mem:.0f} GB, {torch.cuda.device_count()} device(s)"))
@@ -126,14 +137,25 @@ def check_env(allow_cpu: bool = False) -> int:
         others = _other_gpu_processes((vis or "0").split(",")[0])
         r.append(("PASS" if not others else "WARN", "other processes on this GPU", others or "none"))
         frac = float(os.environ.get("MONET_GPU_RESERVE", "0") or 0)
-        if frac > 0:
-            from .gpu import reserve_gpu_memory
+        from .gpu import apply_memory_limit, limit_fraction, reserve_gpu_memory
 
-            got = reserve_gpu_memory(frac)
-            held = torch.cuda.memory_reserved(0) / 1024 ** 3
-            r.append(("PASS" if held >= 0.8 * frac * total / 1024 ** 3 else "WARN", "MONET_GPU_RESERVE works",
-                      f"fraction {frac}: this process could hold {held:.0f} GB (+{got:.0f} GB)"))
-            torch.cuda.empty_cache()
+        cap = limit_fraction()
+        if frac > 0 or cap > 0:
+            tot_gb = total / 1024 ** 3
+            if cap > 0:
+                r.append(("PASS", "per-process cap (MONET_GPU_LIMIT)", f"{cap:.0%} of GPU = {cap * tot_gb:.0f} GB per training/eval process"))
+                if cap * tot_gb > free_gb + 1:
+                    r.append(("WARN", "cap vs free memory", f"cap {cap * tot_gb:.0f} GB > {free_gb:.0f} GB free now: others must free memory first"))
+            if frac > 0:
+                apply_memory_limit(cap)
+                got = reserve_gpu_memory(frac, capped=bool(cap))
+                held = torch.cuda.memory_reserved(0) / 1024 ** 3
+                ok = held >= 0.8 * frac * tot_gb
+                r.append(("PASS" if ok else "WARN", "MONET_GPU_RESERVE works",
+                          f"{frac:.0%}: this process could hold {held:.0f} GB of {frac * tot_gb:.0f} GB (+{got:.0f} GB)"))
+                torch.cuda.empty_cache()
+            r.append(("PASS" if cap * tot_gb >= 40 or cap == 0 else "WARN", "share is enough for Monet-7B training",
+                      f"{cap * tot_gb:.0f} GB (weights 16.6 GB + activations; the memory step picks the batch)" if cap else "no cap"))
     else:
         r.append(("WARN" if allow_cpu else "FAIL", "CUDA available", "no CUDA device"))
     disk = shutil.disk_usage(ROOT).free / 1024 ** 3
@@ -269,6 +291,24 @@ def check_audit(report: str) -> int:
     return _report(r)
 
 
+def default_memory_budget_gb() -> float:
+    """Usable GB per process: the MONET_GPU_LIMIT / MONET_GPU_RESERVE share of the card minus 3 GB headroom,
+    else 85 GB (a whole ~96 GB card)."""
+    from .gpu import limit_fraction
+
+    cap = limit_fraction()
+    if cap > 0:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                return cap * torch.cuda.get_device_properties(0).total_memory / 1024 ** 3 - 3.0
+        except Exception:
+            pass
+        return cap * 96.0 - 3.0
+    return 85.0
+
+
 def check_memory(summary: str, budget_gb: float = 85.0) -> int:
     p = Path(summary)
     if not p.exists():
@@ -315,13 +355,13 @@ def main(argv=None) -> None:
     ap.add_argument("--log", default=str(ROOT / "results" / "preflight" / "06_gpu_tests.log"))
     ap.add_argument("--report", default=str(ROOT / "results" / "audit" / "g0_report_monet7b.json"))
     ap.add_argument("--summary", default=str(ROOT / "results" / "preflight" / "memory_profile.json"))
-    ap.add_argument("--budget-gb", type=float, default=85.0)
+    ap.add_argument("--budget-gb", type=float, default=None, help="default: GPU share (MONET_GPU_LIMIT) - 3 GB, else 85")
     ap.add_argument("--run", default=str(ROOT / "runs" / "smoke"))
     a = ap.parse_args(argv)
     print(f"== preflight: {a.check}")
     fn = {"env": lambda: check_env(a.allow_cpu), "data": lambda: check_data(a.root, a.partial), "weights": check_weights,
           "render": check_render, "gpu-tests": lambda: check_gpu_tests(a.log), "audit": lambda: check_audit(a.report),
-          "memory": lambda: check_memory(a.summary, a.budget_gb), "overfit": lambda: check_overfit(a.run)}[a.check]
+          "memory": lambda: check_memory(a.summary, a.budget_gb if a.budget_gb is not None else default_memory_budget_gb()), "overfit": lambda: check_overfit(a.run)}[a.check]
     sys.exit(fn())
 
 

@@ -52,7 +52,7 @@ def test_gpu_reserve_arithmetic(monkeypatch):
     G = gpu.GiB
     asked = {}
     fake = types.SimpleNamespace(is_available=lambda: True, mem_get_info=lambda i=0: (90 * G, 96 * G),
-                                 memory_reserved=lambda i=0: 20 * G)
+                                 memory_reserved=lambda i=0: 20 * G, OutOfMemoryError=MemoryError)
     monkeypatch.setattr(gpu, "torch", types.SimpleNamespace(
         cuda=fake, uint8=torch.uint8, empty=lambda n, dtype=None, device=None: asked.setdefault("n", n)))
     assert abs(gpu.reserve_gpu_memory(0.95, margin_gb=3) - 71.2) < 0.01  # 0.95*96 - 20
@@ -67,7 +67,7 @@ def test_common_sh_pins_one_gpu():
     from conftest import ROOT
 
     out = subprocess.run(["bash", "-c", "export VENV=${VENV:-$(dirname $(dirname $(command -v python)))}; "
-                          "unset CUDA_VISIBLE_DEVICES MUJOCO_EGL_DEVICE_ID; GPU_ID=3 source scripts/common.sh && "
+                          "unset CUDA_VISIBLE_DEVICES MUJOCO_EGL_DEVICE_ID; GPU_ID=3 MONET_GPU_HOLD=0 source scripts/common.sh && "
                           "echo $CUDA_VISIBLE_DEVICES $MUJOCO_EGL_DEVICE_ID $CUDA_DEVICE_ORDER"],
                          cwd=ROOT, capture_output=True, text=True)
     assert out.stdout.split() == ["3", "3", "PCI_BUS_ID"], out.stderr
@@ -106,3 +106,46 @@ def test_apply_defaults_pins_gpu_and_respects_existing(monkeypatch, tmp_path):
     monkeypatch.delenv("MUJOCO_EGL_DEVICE_ID")
     runtime_env.apply_defaults()
     assert env["CUDA_VISIBLE_DEVICES"] == "3" and env["MUJOCO_EGL_DEVICE_ID"] == "3"  # explicit choice wins
+
+
+def test_reserve_respects_cap_and_shared_card(monkeypatch):
+    """50% share of a 96 GB card with ~48 GB used by others: hold just under the cap, never beyond free."""
+    import types
+
+    import torch
+
+    from monet_action import gpu
+
+    G = gpu.GiB
+    asked = {}
+    fake = types.SimpleNamespace(is_available=lambda: True, mem_get_info=lambda i=0: (31 * G, 96 * G),
+                                 memory_reserved=lambda i=0: 17 * G, OutOfMemoryError=MemoryError)
+    monkeypatch.setattr(gpu, "torch", types.SimpleNamespace(
+        cuda=fake, uint8=torch.uint8, empty=lambda n, dtype=None, device=None: asked.setdefault("n", n)))
+    # target 0.5*96 - 1 (capped) = 47; minus 17 held = 30; free 31 - margin 3 = 28 -> 28 GB more (45 GB total)
+    assert abs(gpu.reserve_gpu_memory(0.5, margin_gb=3, capped=True) - 28.0) < 0.01
+
+
+def test_limit_fraction_defaults_to_reserve(monkeypatch):
+    from monet_action import gpu
+
+    monkeypatch.delenv("MONET_GPU_LIMIT", raising=False)
+    monkeypatch.setenv("MONET_GPU_RESERVE", "0.5")
+    assert gpu.limit_fraction() == 0.5
+    monkeypatch.setenv("MONET_GPU_LIMIT", "0.6")
+    assert gpu.limit_fraction() == 0.6
+    monkeypatch.setenv("MONET_GPU_LIMIT", "0")
+    assert gpu.limit_fraction() == 0.0
+    monkeypatch.delenv("MONET_GPU_LIMIT")
+    monkeypatch.setenv("MONET_GPU_RESERVE", "0")
+    assert gpu.limit_fraction() == 0.0 and preflight.default_memory_budget_gb() == 85.0
+    monkeypatch.setenv("MONET_GPU_RESERVE", "0.5")
+    assert 40 < preflight.default_memory_budget_gb() < 47  # ~0.5 x card - 3 GB
+
+
+def test_env_local_file(tmp_path, monkeypatch):
+    from monet_action import runtime_env
+
+    f = tmp_path / "env.local"
+    f.write_text("# comment\nGPU_ID=1   # inline\nexport MONET_GPU_RESERVE=0.5\nHF_HOME=\"/data/hf\"\nnot a setting\n")
+    assert runtime_env.read_env_local(f) == {"GPU_ID": "1", "MONET_GPU_RESERVE": "0.5", "HF_HOME": "/data/hf"}

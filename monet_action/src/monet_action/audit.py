@@ -39,6 +39,7 @@ def _cos(a, b) -> float:
 
 
 def audit_monet(cfg, tokenizer_path=None, device="cpu", data_root=None) -> Dict:
+    from .gpu import setup_gpu
     from .libero_dataset import LeRobotLiberoFrames
     from .monet_backbone import MonetLatentReasoner, authors_latent_mode_reference, vllm_runner_emulation
     from .monet_loader import load_monet, load_processor
@@ -47,14 +48,11 @@ def audit_monet(cfg, tokenizer_path=None, device="cpu", data_root=None) -> Dict:
     from .state_context import RobotStateProjector, embedding_rms
 
     rep: Dict = {"model_path": cfg.monet.model_path, "revision": cfg.monet.model_revision}
+    rep["gpu"] = setup_gpu(device)  # before loading: GPU-holder hand-over, cap, MONET_GPU_RESERVE
     t0 = time.time()
     model, info = load_monet(cfg.monet, device=device)
     model = model.to(device)
-    from .gpu import setup_gpu
-
-    rep_gpu = setup_gpu(device)
     rep["load_s"] = time.time() - t0
-    rep["gpu"] = rep_gpu
     rep["load_info"] = {k: (v[:10] if isinstance(v, list) else v) for k, v in info.items()}
     rep["hidden_size"] = model.config.text_config.hidden_size
     rep["num_layers"] = model.config.text_config.num_hidden_layers

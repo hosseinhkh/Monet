@@ -252,6 +252,12 @@ def train(cfg: ExperimentConfig, device: str = "cuda", tokenizer_path: Optional[
 def _train(cfg: ExperimentConfig, out: Path, mon: RunMonitor, device: str, tokenizer_path: Optional[str],
            max_minutes: Optional[float]) -> Dict:
     log = mon.logger
+    # First GPU action, before data and weights: hand-over from the GPU holder (MONET_GPU_HOLD), per-process
+    # cap and up-front MONET_GPU_RESERVE claim, so the share is never left unclaimed while loading.
+    gpu = setup_gpu(device)
+    if gpu.get("cuda"):
+        mon.update(gpu=gpu)
+        mon.event("gpu", **gpu)
     seed_everything(cfg.train.seed, cfg.train.deterministic)
     write_json(out / "config.json", cfg.to_dict())
     write_json(out / "environment.json", environment_report())
@@ -269,10 +275,6 @@ def _train(cfg: ExperimentConfig, out: Path, mon: RunMonitor, device: str, token
         write_json(out / "split.json", split)
 
     policy, load_info = build_policy(cfg, device=device, normalizer=normalizer, tokenizer_path=tokenizer_path)
-    gpu = setup_gpu(device)  # GPU 0 (pinned in scripts/common.sh); optional MONET_GPU_RESERVE
-    if gpu.get("cuda"):
-        mon.update(gpu=gpu)
-        mon.event("gpu", **gpu)
     if cfg.train.init_from:
         ck = Path(cfg.train.init_from)
         if (ck / "last").exists():

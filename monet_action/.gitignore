@@ -12,3 +12,4 @@ results/eval/**/videos/
 runs_dry/
 results/dry_run/
 results/preflight/
+env.local

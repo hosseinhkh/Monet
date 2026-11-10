@@ -145,15 +145,52 @@ nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv && nvidia-smi
 
 Training, evaluation and the in-training simulator checks all run on GPU 0.
 
-**Claiming the whole card.** PyTorch normally allocates memory as needed. On a shared server, reserve
-it up front instead:
+**Sharing a card: reserve and cap a fixed share (e.g. 50% of GPU 0).** Put the settings in `env.local`. It is
+git-ignored and read by every `scripts/*.sh` and every `python -m monet_action.*`; variables exported in the shell
+still win.
 ```bash
-export MONET_GPU_RESERVE=0.95
+cp env.local.example env.local
 ```
-Every training, evaluation and audit process then holds 95% of GPU 0 right after loading Monet. It shows
-in `nvidia-smi` as used by that process and is reused for activations; 3 GB stays free for CUDA kernels
-and EGL rendering. Measured memory peaks (`memory` step) are unaffected. The `env` step verifies that the
-reservation works.
+The example sets `GPU_ID=0`, `MONET_GPU_RESERVE=0.5` and `MONET_GPU_HOLD=1`. With that, every training, evaluation and audit process:
+
+* **claims** 50% of GPU 0 as its first GPU action, before loading data or weights (the memory shows in `nvidia-smi`
+  and is reused for the weights and activations);
+* is **capped** at 50% (`torch.cuda.set_per_process_memory_fraction`). A run that would need more fails with a
+  normal out-of-memory error in *your* process instead of starving the other half's users.
+  `MONET_GPU_LIMIT` sets a different cap; `0` disables it.
+
+The preflight adapts:
+
+* `env` reports the cap, checks the reservation works, and warns if the share is larger than the memory free
+  right now (others must free theirs first).
+* `memory` profiles batch sizes inside the share and recommends the largest that fits within it minus 3 GB.
+  `train_all.sh` then uses that batch, keeping the effective batch at 16 through gradient accumulation.
+
+A 50% share of a 96 GB card (≈ 47 GB) holds Monet-7B (16.6 GB) plus training activations for moderate micro-batches.
+
+**Keeping the share between runs (`MONET_GPU_HOLD=1`).** Without it, the 50% is free for anyone while nothing of
+yours runs: after the preflight, between two training variants, between training and evaluation. With it, a small
+background **holder** process owns the share during those gaps:
+
+* the first script that sources `scripts/common.sh` (the preflight, `train_all.sh`, `evaluate_all.sh`, ...) starts
+  the holder if it is not running. It is detached, so it survives logout and tmux, and stays until you stop it;
+* each Monet-Action GPU process takes a **lease** before it touches the GPU. The holder frees its memory (≈ 1 s)
+  and the process claims the 50% itself. When the process exits or crashes, the holder takes the memory back within
+  a second. Others can only grab the share during those one-second hand-overs;
+* the holder leaves 2 GB free and keeps a ~0.5 GB CUDA context while a run has the share. If the card is busy, it
+  holds what it can (`growing`) and takes more as other jobs free memory.
+
+```bash
+bash scripts/gpu_hold.sh status    # state (holding / growing / released / stopped), held GB, live leases
+```
+```bash
+bash scripts/gpu_hold.sh stop      # give the 50% back (e.g. when Phase 1 is finished)
+```
+```bash
+bash scripts/gpu_hold.sh start     # start it by hand (--fraction 0.5 to override MONET_GPU_RESERVE)
+```
+Use a fixed `GPU_ID` with the holder: `GPU_ID=auto` would see the held memory as used and might pick another card.
+The holder's state and log are in `~/.cache/monet_action/gpu_hold/gpu<N>/`.
 
 ## 6. Start training (in tmux, so it survives SSH disconnects)
 
@@ -241,3 +278,4 @@ the same buttons (with or without checkpoints). Single checks can be re-run at a
 | `torch.cuda.is_available() == False` | the driver is too old for CUDA 12.8, or torch is a CPU wheel; check `python -c "import torch; print(torch.version.cuda)"` |
 | HF download stalls or 401 | `huggingface-cli login`, or set `HF_TOKEN`; then retry `scripts/download_data.sh` (it resumes) |
 | `tests_gpu` skipped | CUDA is not visible or the weights are not in the HF cache; set `MONET7B_PATH=/path/to/Monet-7B` |
+| GPU share not handed over / run starts with less memory than expected | `bash scripts/gpu_hold.sh status`; a process that never exits keeps its lease (`leases`). See `~/.cache/monet_action/gpu_hold/gpu0/holder.log` |
