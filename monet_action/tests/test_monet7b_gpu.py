@@ -118,14 +118,17 @@ def test_checkpoint_loads_completely(stack):
 
 @torch.no_grad()
 def test_language_model_sanity_generation(stack):
-    """Weights-loaded-correctly smoke check with ordinary decoding (NOT latent reasoning)."""
+    """Weights-loaded-correctly smoke check with ordinary greedy decoding (NOT latent reasoning).
+    Not ``model.generate()``: see monet_loader.greedy_text_decode (the authors' forward returns logits=None)."""
+    from monet_action.monet_loader import greedy_text_decode
+
     tok = stack["proc"].tokenizer
     msgs = [{"role": "user", "content": "What is 2 + 3? Answer with just the number."}]
     text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
     ids = tok(text, return_tensors="pt").input_ids.cuda()
-    out = stack["model"].generate(input_ids=ids, attention_mask=torch.ones_like(ids), max_new_tokens=24,
-                                  do_sample=False)
-    ans = tok.decode(out[0, ids.shape[1]:], skip_special_tokens=False)
+    stop = {tok.eos_token_id, tok.convert_tokens_to_ids("<|im_end|>"), tok.convert_tokens_to_ids("<|endoftext|>")}
+    new = greedy_text_decode(stack["model"], ids, 24, stop)
+    ans = tok.decode(new, skip_special_tokens=False)
     REPORT["sanity_generation"] = ans
     assert len(ans.strip()) > 0
     if "5" not in ans:

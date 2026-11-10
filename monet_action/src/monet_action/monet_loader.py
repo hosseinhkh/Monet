@@ -138,6 +138,25 @@ def load_monet(cfg, device: Optional[str] = None) -> Tuple[torch.nn.Module, dict
     return model, {"tiny_random": False, "missing_keys": missing, "unexpected_keys": unexpected}
 
 
+@torch.no_grad()
+def greedy_text_decode(model, input_ids: torch.Tensor, max_new_tokens: int = 24, stop_ids=()) -> list:
+    """Plain greedy text decoding (batch 1, no images, no latents) - a weights sanity check.
+
+    ``model.generate()`` does not work with the authors' class: its ``forward`` only computes logits when
+    ``"ce" in loss_type`` (SFT path; their inference uses vLLM). This uses the text decoder + ``lm_head``
+    directly, with a KV cache and default text positions, exactly as the latent reasoner calls the decoder."""
+    lm, head = model.model.language_model, model.lm_head
+    out = lm(input_ids=input_ids, use_cache=True, return_dict=True)
+    new: list = []
+    for _ in range(max_new_tokens):
+        nxt = head(out.last_hidden_state[:, -1]).argmax(-1, keepdim=True)
+        new.append(int(nxt))
+        if new[-1] in set(stop_ids):
+            break
+        out = lm(input_ids=nxt, past_key_values=out.past_key_values, use_cache=True, return_dict=True)
+    return new
+
+
 def load_processor(cfg, tokenizer_path: Optional[str] = None):
     """Qwen2.5-VL processor (tokenizer + image processor) shipped with the Monet checkpoint."""
     from transformers import AutoProcessor

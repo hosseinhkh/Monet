@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Measure peak GPU memory and step time for candidate micro-batch sizes (5 real training steps each).
-#   bash scripts/profile_memory.sh [config] ; BATCHES="4 8 12 16" overrides the candidates.
+#   bash scripts/profile_memory.sh [config] ; BATCHES="4 8 12 16" overrides the candidates (2 = fallback
+#   for a capped share, e.g. MONET_GPU_RESERVE=0.5; the largest batch that fits is recommended).
 # Writes results/preflight/memory_profile.json; `python -m monet_action.preflight memory` picks the batch.
 source "$(dirname "$0")/common.sh"
 CFG="${1:-configs/d2_lora.yaml}"
 OUTJ="${PROFILE_OUT:-results/preflight/memory_profile.json}"
 mkdir -p "$(dirname "$OUTJ")"
 echo "[]" > "$OUTJ"
-for B in ${BATCHES:-4 8 12 16}; do
+for B in ${BATCHES:-2 4 8 12 16}; do
   D="runs/memprobe_b$B"
   rm -rf "$D"
   ok=1

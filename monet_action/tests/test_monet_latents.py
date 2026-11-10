@@ -170,3 +170,23 @@ def test_state_dependence_of_reasoning(tiny_model, processor, cfg):
     s = s.requires_grad_(True)
     r(inp, proj(s)).latents[:, -1].sum().backward()
     assert s.grad is not None and s.grad.abs().sum() > 0
+
+
+@torch.no_grad()
+def test_greedy_text_decode_matches_full_recompute(tiny_model):
+    """The Monet-7B GPU sanity-generation check uses this decoder (the authors' forward returns logits=None
+    outside their SFT loss path, so HF ``generate()`` cannot be used)."""
+    from monet_action.monet_loader import greedy_text_decode
+
+    ids = torch.tensor([[151644, 872, 198, 3838, 374, 220, 17, 488, 220, 18, 30, 151645, 198, 151644, 77091, 198]])
+    assert tiny_model(input_ids=ids).logits is None  # why generate() fails on the real checkpoint
+    new = greedy_text_decode(tiny_model, ids, max_new_tokens=6)
+    seq = ids
+    ref = []
+    for _ in range(6):  # no KV cache: full recompute each step
+        h = tiny_model.model.language_model(input_ids=seq, use_cache=False, return_dict=True).last_hidden_state
+        nxt = tiny_model.lm_head(h[:, -1]).argmax(-1, keepdim=True)
+        ref.append(int(nxt))
+        seq = torch.cat([seq, nxt], 1)
+    assert new == ref and len(new) == 6
+    assert greedy_text_decode(tiny_model, ids, max_new_tokens=6, stop_ids={ref[0]}) == ref[:1]
