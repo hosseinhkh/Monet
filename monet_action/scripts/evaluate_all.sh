@@ -17,7 +17,8 @@ cl() {  # cl <run> <out_name> [extra flags...]
   python -m monet_action.evaluate closed_loop --checkpoint "$RUNS/$run" --eval-config $EVAL \
     --output-dir "$OUT/$name" --device "$DEVICE" "${EA[@]}" "$@"
 }
-for run in d0_k0 d1_k10 d2_lora d0_k0_lora d4_query d4_query_lora d1_k5 d1_k20 d1_latents_only d1_no_toolresult d1_sft_convention; do
+for run in d0_k0 d1_k10 d2_lora d0_k0_lora d4_query d4_query_lora d1_k5 d1_k20 d1_latents_only d1_no_toolresult d1_sft_convention \
+           d2_lora_wide d0_k0_lora_wide d2_ft4 d0_k0_ft4 d2_ft8 d0_k0_ft8; do
   [ -f "$RUNS/$run/last" ] || { echo "skip $run (no checkpoint in $RUNS/$run)"; continue; }
   cl "$run" "$run"
   python -m monet_action.evaluate offline --checkpoint "$RUNS/$run" --steps 2 4 8 --output-dir "$OUT/$run" --device "$DEVICE" "${OA[@]}"

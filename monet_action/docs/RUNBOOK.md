@@ -205,8 +205,10 @@ The holder's state and log are in `~/.cache/monet_action/gpu_hold/gpu<N>/`.
 
 ## 6. Start training (in tmux, so it survives SSH disconnects)
 
-**What is trained.** There is no full fine-tuning in Phase 1. Monet-7B's base weights, vision tower included,
-are frozen in every run:
+**What is trained.** The action expert, conditioner and projectors are always trained in full. Monet-7B's
+base weights, vision tower included, are frozen in the core runs; D2 and D0-LoRA adapt it with LoRA. The
+optional capacity ladder trains more of Monet: wider LoRA, or full fine-tuning of 4 or 8 decoder layers. Why
+the whole model is not fine-tuned, and when to climb the ladder: [FINETUNING.md](FINETUNING.md).
 
 | run (config) | Monet-7B | trained | steps | starts from |
 |---|---|---|---|---|
@@ -218,6 +220,9 @@ are frozen in every run:
 | D5 (`d5_mlp`), K=10 | frozen | projectors, conditioner, MLP head | 20k | scratch |
 | `EXTRA=1`: K=5, K=20, 3 ablations | frozen | as D1 | 20k | scratch |
 | `EXTRA=1`: D4-LoRA (`d4_query_lora`) | **LoRA** | D4's modules + LoRA | 10k (stage B) | `runs/d4_query/ckpt_0010000` |
+| capacity ladder `lora_wide` (`d2_lora_wide` + `d0_k0_lora_wide`) | **LoRA** r=64, attention + MLP, all 28 layers (~161M) | D2's / D0-LoRA's modules + wide LoRA | 10k (stage B) each | D1@10k / D0@10k |
+| capacity ladder `ft4` (`d2_ft4` + `d0_k0_ft4`) | **full fine-tuning** of layers 24–27 (~0.93B, fp32, lr 1e-5) | same modules + those layers | 10k (stage B) each | D1@10k / D0@10k |
+| capacity ladder `ft8` (`d2_ft8` + `d0_k0_ft8`) | **full fine-tuning** of layers 20–27 (~1.86B); whole card | same modules + those layers | 10k (stage B) each | D1@10k / D0@10k |
 
 Every run uses an effective batch of 16 windows and the same data split, seed, DiT and conditioner. The
 step-10k checkpoints of D0, D1 and D4 are never deleted (`train.keep_every=10000`), because the LoRA runs
@@ -244,6 +249,11 @@ conda activate monet_action && cd /path/to/Monet/monet_action && mkdir -p runs &
   at your micro-batch), plus about 10% for validation and simulator checks.
 * **GPU share (`MONET_GPU_HOLD=1`).** Each run takes the 50% over from the holder when it starts and
   hands it back when it ends. Between variants the holder keeps it, so other users cannot take it.
+* **Capacity ladder (after the core runs).** Run it with `bash scripts/train_capacity.sh lora_wide`
+  (then `ft4`; `ft8` needs the whole card), or with `CAPACITY="lora_wide ft4" bash scripts/train_all.sh`.
+  * Each level profiles its memory once, then trains the K=10 run and its K=0 control at the same
+    micro-batch.
+  * Full fine-tuning checkpoints are large: ~11 GB each for `ft4`, ~22 GB for `ft8`. Check disk space.
 
 Monitoring (second tmux window, `Ctrl-b c`):
 ```bash

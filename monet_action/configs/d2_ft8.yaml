@@ -1,0 +1,14 @@
+_base_: d2_lora.yaml
+name: d2_ft8
+variant: D2-FT8
+description: >-
+  Capacity ladder, rung 4 (docs/FINETUNING.md). Full fine-tuning of the same 8 layers D2 adapts with LoRA
+  (20-27, ~1.86B params, fp32, lr 1e-5), so D2 vs D2-FT8 is LoRA vs full update of identical layers. About
+  +30 GB over D2: needs the whole 96 GB card (MONET_GPU_RESERVE=0.9), not a 50% share. Control: d0_k0_ft8.
+monet:
+  lora_enabled: false
+  finetune_layers: [20, 21, 22, 23, 24, 25, 26, 27]
+train:
+  output_dir: runs/d2_ft8
+  lr_backbone: 1.0e-5
+  keep_last: 2            # each checkpoint holds ~7.5 GB of weights + ~15 GB of optimizer state

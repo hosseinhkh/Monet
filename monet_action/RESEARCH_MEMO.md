@@ -50,6 +50,21 @@ latent steps (K=0)? Secondary question: is any gain worth its extra GPU time and
   * Bypass diagnostics on D2: `mask_vl` (latents only at test time) and `mask_all` (unconditioned head).
   * Latent layout: the default inference/RL layout vs the SFT-stage layout (`d1_sft_convention`).
     Monet-7B saw K=8 with the SFT layout and K=10 with the RL layout during training.
+  * **Monet adaptation capacity ladder** (added 10 November 2026, before any training result;
+    docs/FINETUNING.md). It asks whether D2's small LoRA (r=16, attention only, layers 20–27) limits the
+    result. Levels:
+    * wide LoRA: r=64, attention + MLP, all 28 layers;
+    * full fine-tuning of layers 24–27;
+    * full fine-tuning of layers 20–27.
+
+    Each level is run as a K=10 / K=0 pair with identical adaptation. The quantity of interest is the
+    K=10 − K=0 gap per level, with the same paired statistics. Escalation follows the decision rule fixed
+    in docs/FINETUNING.md §4:
+    * wide LoRA after the core runs;
+    * full FT of 4 layers only if wide LoRA beats D2 or D2 under-fits;
+    * full FT of 8 layers only if 4 layers beats wide LoRA.
+
+    Whole-model full fine-tuning is out of scope: it does not fit one 96 GB GPU.
 * **Effect size of interest.** A difference of at least +5 percentage points with a CI excluding 0. With
   300 paired episodes per variant, smaller effects may not be resolvable; say so explicitly rather than
   claiming "no effect".

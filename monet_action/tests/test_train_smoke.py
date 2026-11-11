@@ -73,3 +73,36 @@ def test_gpu_summary_reaches_status_and_events(cfg_path, data_root, processor, t
     g = [e for e in ev if e["event"] == "gpu"]
     assert g and g[0]["name"] == fake["name"] and g[0]["holder_lease"] is True
     assert json.loads((out / "status.json").read_text())["gpu"]["name"] == fake["name"]
+
+
+def test_full_finetune_stage_b_from_frozen_stage_a(cfg_path, data_root, processor, tmp_path):
+    """The D2-FT4 / D2-FT8 path end to end: frozen stage A -> stage B that fully fine-tunes a decoder layer,
+    warm-started from stage A (as d2_ft4 starts from D1@10k); gradient audit, checkpoint, reload for eval."""
+    common = [f"data.root={data_root}", "data.max_windows=8", "train.batch_size=4", "train.overfit_eval_every=0",
+              "train.max_steps=2", "train.save_every=2", "train.warmup_steps=1"]
+    a, b = tmp_path / "stage_a", tmp_path / "stage_b"
+    train(load_config(cfg_path, common + [f"train.output_dir={a}"]), device="cpu")
+    cfg_b = load_config(cfg_path, common + [f"train.output_dir={b}", f"train.init_from={a}", "monet.finetune_layers=[1]",
+                                            "train.lr_backbone=1e-3"])
+    train(cfg_b, device="cpu")
+    audit = json.loads((b / "gradient_audit.json").read_text())
+    assert audit["passed"] and audit["report"]["monet_full"]["grad_norm"] > 0
+    rep = json.loads((b / "param_report.json").read_text())
+    assert rep["monet_full"] > 0 and rep["monet_lora"] == 0
+    ev = [json.loads(line)["event"] for line in (b / "events.jsonl").read_text().splitlines()]
+    assert "init_from" in ev
+    log = [json.loads(line) for line in (b / "train_log.jsonl").read_text().splitlines() if '"lrs"' in line]
+    assert "backbone" in log[-1]["lrs"]
+    policy, cfg2, meta = load_policy_from_checkpoint(str(b), "cpu")
+    assert cfg2.monet.finetune_layers == [1] and meta["step"] == 2
+    sd = torch.load(b / (b / "last").read_text().strip() / "trainable.pt", map_location="cpu")
+    w = "reasoner.model.model.language_model.layers.1.mlp.down_proj.weight"
+    assert w in sd and torch.equal(dict(policy.named_parameters())[w].detach(), sd[w])
+    fresh = build_tiny_monet_layer1()
+    assert not torch.equal(fresh, sd[w])  # stage B actually moved the pretrained layer
+
+
+def build_tiny_monet_layer1():
+    from monet_action.monet_loader import build_tiny_monet
+
+    return build_tiny_monet(seed=0).model.language_model.layers[1].mlp.down_proj.weight.detach()

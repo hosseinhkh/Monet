@@ -337,8 +337,14 @@ def check_memory(summary: str, budget_gb: float = 85.0) -> int:
         note = f"; {larger} also fit{'s' if len(larger) == 1 else ''} but do not divide {eff}" if larger else ""
         r.append(("PASS" if b * accum == eff else "WARN", "recommended micro-batch",
                   f"train.batch_size={b} train.grad_accum={accum} (effective {b * accum}, configs: {eff}{note})"))
-        (p.parent / "recommended_batch.txt").write_text(f"train.batch_size={b} train.grad_accum={accum}\n")
+        (p.parent / recommended_name(p)).write_text(f"train.batch_size={b} train.grad_accum={accum}\n")
     return _report(r)
+
+
+def recommended_name(summary: Path) -> str:
+    """memory_profile.json -> recommended_batch.txt; memory_profile_d2_ft4.json -> recommended_batch_d2_ft4.txt."""
+    stem = Path(summary).stem
+    return "recommended_batch" + (stem[len("memory_profile"):] if stem.startswith("memory_profile") else "_" + stem) + ".txt"
 
 
 def effective_batch() -> int:

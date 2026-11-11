@@ -1,0 +1,14 @@
+_base_: d2_lora.yaml
+name: d2_ft4
+variant: D2-FT4
+description: >-
+  Capacity ladder, rung 3 (docs/FINETUNING.md). Full fine-tuning (all weights, fp32, lr 1e-5) of the last 4
+  decoder layers (24-27, ~0.93B params); no LoRA. Same stage-B budget and warm start as D2 (D1@10k). About
+  +15 GB over D2: profile first (scripts/train_capacity.sh does). Matched K=0 control: d0_k0_ft4.
+monet:
+  lora_enabled: false
+  finetune_layers: [24, 25, 26, 27]
+train:
+  output_dir: runs/d2_ft4
+  lr_backbone: 1.0e-5
+  keep_last: 2            # each checkpoint holds ~3.7 GB of weights + ~7.5 GB of optimizer state

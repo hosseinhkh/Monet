@@ -1,0 +1,11 @@
+_base_: d0_k0_lora.yaml
+name: d0_k0_ft4
+variant: D0-FT4
+description: Matched K=0 control for d2_ft4 (same 4 fully fine-tuned layers, same stage B from D0@10k).
+monet:
+  lora_enabled: false
+  finetune_layers: [24, 25, 26, 27]
+train:
+  output_dir: runs/d0_k0_ft4
+  lr_backbone: 1.0e-5
+  keep_last: 2

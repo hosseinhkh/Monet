@@ -16,6 +16,12 @@ from .metrics import markdown_table
 
 PRINCIPAL = ["d0_k0", "d1_k10", "d2_lora", "d0_k0_lora"]
 CONTROLS = ["d4_query", "d4_query_lora", "d5_mlp", "d1_latents_only", "d1_no_toolresult", "d1_sft_convention", "d1_k5", "d1_k20"]
+# Monet adaptation capacity ladder (docs/FINETUNING.md): (level, trained Monet weights, K=10 run, matched K=0 run)
+CAPACITY = [("frozen", "none", "d1_k10", "d0_k0"),
+            ("LoRA (D2)", "LoRA r=16, q/k/v/o, layers 20-27 (~2.9M)", "d2_lora", "d0_k0_lora"),
+            ("wide LoRA", "LoRA r=64, attention + MLP, all 28 layers (~161M)", "d2_lora_wide", "d0_k0_lora_wide"),
+            ("full FT, 4 layers", "layers 24-27 in full (~0.93B)", "d2_ft4", "d0_k0_ft4"),
+            ("full FT, 8 layers", "layers 20-27 in full (~1.86B)", "d2_ft8", "d0_k0_ft8")]
 
 
 def _load(p: Path):
@@ -32,7 +38,7 @@ def build_report(eval_dir: str) -> str:
         return "\n".join(L + ["No evaluation outputs found (not run)."])
 
     L += ["## 1. Main comparison (matched data, seeds, DiT, init states)", ""]
-    main = {k: S[k] for k in PRINCIPAL + CONTROLS if k in S}
+    main = {k: S[k] for k in PRINCIPAL + CONTROLS + [r for lv in CAPACITY[2:] for r in lv[2:]] if k in S}
     L += [markdown_table(main) if main else "not run", ""]
     present = [str(runs[k]) for k in PRINCIPAL + ["d4_query"] if k in runs]
     if len(present) >= 2:
@@ -74,6 +80,16 @@ def build_report(eval_dir: str) -> str:
                          f"| {mon:.1f} | {s_['gpu_seconds_per_success']:.2f} |")
     else:
         L.append("| not run | | | | | |")
+    L += ["", "## 4d. Monet adaptation capacity: does the K=10 gain depend on how much of Monet is trained?", "",
+          "Each level compares K=10 with its matched K=0 control (same trained weights, data, seeds, init states).",
+          "", "| level | trained Monet weights | K=10 success | K=0 success | K=10 - K=0 |", "|---|---|---|---|---|"]
+    fmt = lambda k: f"{S[k]['success_rate']:.3f}" if k in S else "not run"  # noqa: E731
+    for level, what, k10, k0 in CAPACITY:
+        delta = f"{S[k10]['success_rate'] - S[k0]['success_rate']:+.3f}" if k10 in S and k0 in S else "-"
+        L.append(f"| {level} | {what} | {fmt(k10)} | {fmt(k0)} | {delta} |")
+    for level, _, k10, k0 in CAPACITY[2:]:
+        if k10 in runs and k0 in runs:
+            L += ["", f"Paired statistics, {level}:", "", compare([str(runs[k10]), str(runs[k0])])]
     L += ["", "## 4c. Automatic failure-tag counts (heuristic hints; confirm on videos)", ""]
     tagged = {k: s_.get("failure_tag_counts") for k, s_ in S.items() if s_.get("failure_tag_counts")}
     if tagged:

@@ -35,9 +35,10 @@ class PolicyPrediction:
 
 
 def lora_target_regex(cfg) -> str:
+    """Attention (q/k/v/o_proj) and MLP (gate/up/down_proj) projections of the selected decoder layers."""
     layers = "|".join(str(i) for i in cfg.lora_layers)
     mods = "|".join(cfg.lora_target_modules)
-    return rf".*language_model\.layers\.({layers})\.self_attn\.({mods})"
+    return rf".*language_model\.layers\.({layers})\.(self_attn|mlp)\.({mods})"
 
 
 class MonetActionPolicy(nn.Module):
@@ -60,6 +61,19 @@ class MonetActionPolicy(nn.Module):
                 p.requires_grad_("lora_" in k)
                 if "lora_" in k:
                     p.data = p.data.float()  # fp32 adapter weights (PEFT casts activations back)
+        if cfg.monet.finetune_layers:
+            # Full fine-tuning of whole decoder layers. Weights go to fp32 (as the LoRA adapters): bf16 weights
+            # would silently drop small AdamW updates (8-bit mantissa). Under CUDA autocast their matmuls still
+            # run in bf16, and the residual stream stays bf16 because only norm outputs (consumed by the
+            # autocast linears) are fp32; the final norm stays frozen, so fed-back latents keep the model dtype.
+            layers = monet_model.model.language_model.layers
+            bad = [i for i in cfg.monet.finetune_layers if i >= len(layers)]
+            if bad:
+                raise ValueError(f"monet.finetune_layers {bad} out of range: the model has {len(layers)} layers")
+            for i in cfg.monet.finetune_layers:
+                layers[i].float()
+                for p in layers[i].parameters():
+                    p.requires_grad_(True)
         if cfg.monet.gradient_checkpointing:
             monet_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         self.reasoner = MonetLatentReasoner(monet_model, cfg.monet, cfg.conditioner)
@@ -88,7 +102,7 @@ class MonetActionPolicy(nn.Module):
     def train(self, mode: bool = True):
         super().train(mode)
         m = self.cfg.monet
-        monet_train = mode and (m.lora_enabled or m.gradient_checkpointing)
+        monet_train = mode and (m.lora_enabled or m.gradient_checkpointing or bool(m.finetune_layers))
         self.reasoner.model.train(monet_train)
         return self
 
@@ -242,11 +256,11 @@ class MonetActionPolicy(nn.Module):
                     own[k].copy_(v.to(own[k].dtype))
 
     def parameter_report(self) -> Dict[str, int]:
-        groups = {"monet_frozen": 0, "monet_lora": 0, "state_projector": 0, "tool_result_projector": 0,
+        groups = {"monet_frozen": 0, "monet_lora": 0, "monet_full": 0, "state_projector": 0, "tool_result_projector": 0,
                   "conditioner": 0, "action_head": 0, "learned_queries": 0}
         for n, p in self.named_parameters():
             if n.startswith("reasoner.model."):
-                groups["monet_lora" if "lora_" in n else "monet_frozen"] += p.numel()
+                groups["monet_lora" if "lora_" in n else ("monet_full" if p.requires_grad else "monet_frozen")] += p.numel()
             elif n.startswith("reasoner.learned_queries"):
                 groups["learned_queries"] += p.numel()
             elif n.startswith("state_projector"):

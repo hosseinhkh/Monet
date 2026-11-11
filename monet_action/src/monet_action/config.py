@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import typing
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -63,6 +64,10 @@ class MonetConfig:
     lora_dropout: float = 0.05
     lora_target_modules: List[str] = field(default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])
     lora_layers: List[int] = field(default_factory=lambda: list(range(20, 28)))
+    # Full fine-tuning of whole decoder layers (all their weights, kept in fp32, lr = train.lr_backbone).
+    # [] = none (D0-D2). Capacity ladder: configs/d2_ft4.yaml (layers 24-27), d2_ft8.yaml (20-27). The whole
+    # 28-layer LLM does not fit one 96 GB GPU with AdamW (~16 bytes per trained parameter; docs/FINETUNING.md).
+    finetune_layers: List[int] = field(default_factory=list)
     # ---- tiny-random model (tests / CPU) ----
     tiny_hidden_size: int = 64
     tiny_num_layers: int = 2
@@ -172,6 +177,7 @@ class TrainConfig:
     grad_accum: int = 2
     lr_head: float = 1e-4
     lr_lora: float = 5e-5
+    lr_backbone: float = 1e-5  # fully fine-tuned Monet decoder layers (monet.finetune_layers)
     lr_state: float = 1e-4
     weight_decay: float = 1e-4
     warmup_steps: int = 500
@@ -282,6 +288,15 @@ class ExperimentConfig:
             raise ValueError("tool_result and state placeholders must differ")
         if self.train.latent_retention_weight > 0 and not self.monet.lora_enabled:
             raise ValueError("latent_retention_weight only makes sense with LoRA (D2)")
+        ft = list(m.finetune_layers)
+        if len(set(ft)) != len(ft) or any(i < 0 for i in ft):
+            raise ValueError(f"monet.finetune_layers must be distinct non-negative layer indices: {ft}")
+        if ft and m.lora_enabled and set(ft) & set(m.lora_layers):
+            raise ValueError("a decoder layer cannot be both LoRA-adapted and fully fine-tuned: "
+                             f"{sorted(set(ft) & set(m.lora_layers))}")
+        if ft and self.train.latent_retention_weight > 0:
+            raise ValueError("latent_retention_weight needs the unadapted model (LoRA disabled); "
+                             "it is not available with monet.finetune_layers")
 
 
 # --------------------------------------------------------------------------------------
@@ -311,9 +326,28 @@ def _load_yaml_with_base(path: Path) -> Dict[str, Any]:
     return _deep_update(merged, raw)
 
 
+def _coerce(v: Any, hint: Any, key: str) -> Any:
+    """YAML 1.1 reads ``1e-5`` (no dot) as a *string*; turn such values into the field's declared number type
+    (``float``/``int``, also inside ``Optional``), so ``--override train.lr_head=1e-4`` does what it says."""
+    args = [a for a in typing.get_args(hint) if a is not type(None)]
+    target = args[0] if typing.get_origin(hint) is typing.Union and len(args) == 1 else hint
+    if target is float and isinstance(v, (int, str)) and not isinstance(v, bool):
+        try:
+            return float(v)
+        except ValueError:
+            raise ValueError(f"config key '{key}' expects a number, got {v!r}") from None
+    if target is int and isinstance(v, str):
+        try:
+            return int(v)
+        except ValueError:
+            raise ValueError(f"config key '{key}' expects an integer, got {v!r}") from None
+    return v
+
+
 def _from_dict(cls, data: Dict[str, Any]):
     kwargs = {}
     names = {f.name: f for f in fields(cls)}
+    hints = typing.get_type_hints(cls)
     for k, v in (data or {}).items():
         if k not in names:
             raise KeyError(f"Unknown config key '{k}' for {cls.__name__}")
@@ -321,7 +355,7 @@ def _from_dict(cls, data: Dict[str, Any]):
         if sub is not None and isinstance(v, dict):
             kwargs[k] = _from_dict(sub, v)
         else:
-            kwargs[k] = v
+            kwargs[k] = _coerce(v, hints.get(k), f"{cls.__name__}.{k}")
     return cls(**kwargs)
 
 

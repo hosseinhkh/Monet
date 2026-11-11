@@ -58,6 +58,10 @@ flowchart TB
 | K sweep 0/5/10/20 | dose-response and latency cost | exploratory |
 | latents-only, no-TOOL_RESULT action, SFT latent layout | design ablations | exploratory |
 | D3 on D2 | dependence on latent content (OOD perturbations) | diagnostic |
+| K=10 vs K=0 at each Monet adaptation level: frozen, LoRA (D2), wide LoRA, full FT of 4 / 8 layers | whether the latent benefit depends on how much of Monet is trained (is D2's small LoRA the limit?) | exploratory, pre-registered decision rule ([FINETUNING.md](FINETUNING.md)) |
+
+The full proposal, its hypotheses and a requirement-by-requirement traceability table are in
+[PROPOSAL.md](PROPOSAL.md).
 
 ## 3. Pipeline and gates
 

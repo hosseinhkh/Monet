@@ -64,12 +64,14 @@ def lr_lambda(step: int, cfg) -> float:
 
 
 def param_groups(policy: MonetActionPolicy, tcfg) -> List[Dict]:
-    groups = {"lora": [], "state": [], "head": [], "head_nodecay": []}
+    groups = {"lora": [], "backbone": [], "state": [], "head": [], "head_nodecay": []}
     for n, p in policy.named_parameters():
         if not p.requires_grad:
             continue
         if "lora_" in n:
             groups["lora"].append(p)
+        elif n.startswith("reasoner.model."):  # fully fine-tuned decoder layers (monet.finetune_layers)
+            groups["backbone"].append(p)
         elif n.startswith("state_projector"):
             groups["state"].append(p)
         elif p.ndim < 2 or "embedding" in n or "null_token" in n or "token_pos" in n:
@@ -79,6 +81,8 @@ def param_groups(policy: MonetActionPolicy, tcfg) -> List[Dict]:
     out = []
     if groups["lora"]:
         out.append({"name": "lora", "params": groups["lora"], "lr": tcfg.lr_lora, "weight_decay": 0.0})
+    if groups["backbone"]:  # no weight decay: it would pull pretrained weights towards zero
+        out.append({"name": "backbone", "params": groups["backbone"], "lr": tcfg.lr_backbone, "weight_decay": 0.0})
     if groups["state"]:
         out.append({"name": "state", "params": groups["state"], "lr": tcfg.lr_state, "weight_decay": tcfg.weight_decay})
     out.append({"name": "head", "params": groups["head"], "lr": tcfg.lr_head, "weight_decay": tcfg.weight_decay})
@@ -92,6 +96,7 @@ GRAD_GROUPS = {
     "conditioner_latent_proj": lambda n: n.startswith("conditioner.lat_proj"),
     "state_projector": lambda n: n.startswith("state_projector"),
     "monet_lora": lambda n: "lora_" in n,
+    "monet_full": lambda n: n.startswith("reasoner.model.") and "lora_" not in n,  # only trainable ones count
     "learned_queries": lambda n: n.startswith("reasoner.learned_queries"),
 }
 
@@ -120,6 +125,8 @@ def assert_gradients(rep: Dict, cfg: ExperimentConfig) -> None:
         must.append("state_projector")
     if cfg.monet.lora_enabled:
         must.append("monet_lora")
+    if cfg.monet.finetune_layers:
+        must.append("monet_full")
     if cfg.monet.reasoning_mode == "learned_query" and cfg.monet.num_latents > 0 and cfg.conditioner.feature_source != "vl_only":
         must.append("learned_queries")
     if cfg.monet.num_latents > 0 and cfg.conditioner.feature_source != "vl_only":

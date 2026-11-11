@@ -14,6 +14,39 @@ RGB (agent + wrist) + instruction + 8D state + TOOL_RESULT (previously executed 
   -> execute E=1|2 actions with env.step -> TOOL_RESULT (fresh observation + executed actions) -> repeat
 ```
 
+## The research in one page
+
+This repository implements Phase 1 of the research proposal *Monet-Action v2: continuous latent reasoning
+with a callable flow-matching DiT action expert*. The full plan, and where each part of it lives in the code,
+is in **[docs/PROPOSAL.md](docs/PROPOSAL.md)**.
+
+* **Question.** Do Monet's self-fed continuous latent reasoning states improve closed-loop robotic
+  manipulation when they condition a learned continuous-action expert, compared with a matched model
+  without those reasoning steps? **And** does any gain pay for its extra GPU time and latency?
+* **Why it is new (a hypothesis, not a result).** Monet-7B reasons in K continuous steps, each fed the
+  previous step's final hidden state. Phase 1 uses those internal states as the context of an *executable
+  action tool* (CALL_ACTION → flow-matching DiT → actions → TOOL_RESULT), not only as features. Coupling a
+  VLM to a DiT alone would not be new. Related latent-VLA work: LaST0 and LaRA-VLA.
+* **Hypotheses.**
+  * **H1 feasibility:** the latents form a trainable, useful conditioning interface.
+  * **H2 added value:** K=10 self-fed steps beat matched K=0 controls (D1 vs D0, D2 vs D0-LoRA) and the
+    compute-matched D4.
+  * **H3 dependence:** perturbing the latents (D3) changes action quality.
+  * **H4 cost:** the gain is worth the latency and GPU-seconds per success.
+* **Boundaries.**
+  * A compact GR00T-*style* DiT trained from scratch; not the full GR00T model or its weights.
+  * CALL_ACTION is fixed: no learned tool router (Phase 3).
+  * No CoVT perceptual thoughts (Phase 2).
+  * Paused-simulator success only: no real-time or safety claims.
+  * Positive, null and negative results all count, and all are reported.
+* **Plan.**
+  * Gate 0: sources, environment, latent parity, a correct LIBERO batch.
+  * Gate 1: unit tests, overfit, one closed-loop step.
+  * Gate 2: D0–D5 trained and evaluated on 10 tasks × 3 seeds × 10 episodes, with D3 interventions and
+    latency / cost profiles.
+  * Then the research conclusion in [RESEARCH_MEMO.md](RESEARCH_MEMO.md), whose analysis plan was fixed
+    before any result.
+
 ## Status
 
 The code, configs, tests, monitoring and scripts for G0–G3 are complete.
@@ -31,7 +64,7 @@ Its logs and reports stay on the server, in `results/preflight/` and `results/au
 
 **In this repository's CPU container:**
 
-* the full test suite: 174 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
+* the full test suite: 192 passed, 1 skipped (the Monet-7B GPU module, which needs CUDA). See `make test-all` and `results/cpu_validation/pytest_all.txt`;
 * the whole pipeline dry run (`MODEL=tiny bash scripts/dry_run.sh`): 6 training variants, warm-start chains, in-training simulator checks, all 21 evaluation runs and the report;
 * the G0 audit (`results/audit/g0_report_tiny.*`);
 * a tiny overfit;
@@ -73,9 +106,15 @@ bash scripts/gpu_hold.sh stop      # when Phase 1 is done: give the reserved GPU
 * **Developer workflow.** Per-component tests, lint and pre-commit are described in
   [DEVELOPMENT.md](DEVELOPMENT.md).
 
-**Start here:** [docs/BIG_PICTURE.md](docs/BIG_PICTURE.md). It covers the diagrams, which comparison
-answers which question, the pass criteria before long GPU runs, the proposal assessment, the power
-analysis, the compute budget, and how to read the results.
+**Start here:**
+
+* [docs/PROPOSAL.md](docs/PROPOSAL.md): the research plan, hypotheses, work packages and gates, with a
+  traceability table from every proposal requirement to its implementation and status.
+* [docs/BIG_PICTURE.md](docs/BIG_PICTURE.md): the diagrams, which comparison answers which question, the
+  pass criteria before long GPU runs, the proposal assessment, the power analysis, the compute budget, and
+  how to read the results.
+* [docs/FINETUNING.md](docs/FINETUNING.md): how much of Monet to train (frozen, LoRA, full fine-tuning),
+  and why.
 
 ## Monitoring, logs and debug bundles
 
@@ -120,9 +159,11 @@ and environment info for later debugging. Checkpoint weights are added only with
 | D5 | frozen | 10 | self-fed | MLP regression head (control only) | `d5_mlp.yaml` |
 | K sweep | frozen | 5, 20 | self-fed | as D1 | `d1_k5.yaml`, `d1_k20.yaml` |
 | ablations | frozen | 10 | self-fed | latents-only conditioning; no previous action in TOOL_RESULT; SFT-stage latent layout | `d1_latents_only.yaml`, `d1_no_toolresult.yaml`, `d1_sft_convention.yaml` |
+| capacity ladder (exploratory) | wide LoRA (r=64, attention + MLP, all layers) / full fine-tuning of layers 24–27 or 20–27 | 10, each with a K=0 control | self-fed | D2's modules with more of Monet trained; stage B from D1@10k / D0@10k | `d2_lora_wide`, `d2_ft4`, `d2_ft8` (+ `d0_k0_*`), see [docs/FINETUNING.md](docs/FINETUNING.md) |
 
-**What is trained: no full fine-tuning in Phase 1.** Monet-7B's 7B base weights, vision tower included,
-stay frozen in every variant:
+**What is trained.** The action expert (DiT), conditioner and projectors are always trained in full, from
+scratch. Monet-7B's base weights, vision tower included, stay frozen in every core variant; D2 adapts Monet
+through LoRA:
 
 * **Frozen variants (D0, D1, D4, D5, K sweep, ablations).** Only the small task modules train: the state
   and TOOL_RESULT projectors, the conditioner, and the action head (DiT; an MLP for D5). D4 also trains its
@@ -133,6 +174,13 @@ stay frozen in every variant:
   * Stage B is 10k joint steps from that checkpoint, so every variant gets 20k head updates.
 * **Batch.** Every variant uses an effective batch of 16 windows (micro-batch × gradient accumulation;
   the preflight picks the micro-batch). Learning rates: 1e-4 for the head and projectors, 5e-5 for LoRA.
+* **More of Monet (capacity ladder).** If D2's small LoRA may be the limit, `scripts/train_capacity.sh`
+  trains wider LoRA (~161M params) or fully fine-tunes 4 or 8 decoder layers (~0.93B / ~1.86B params, fp32,
+  lr 1e-5). Each level gets a matched K=0 control, so the latent steps stay the only difference.
+  * Fully fine-tuning all of Monet is not offered: with AdamW it needs ~104 GB beyond the weights, more
+    than one 96 GB GPU.
+  * It would also risk overwriting the pretrained reasoning under test.
+  * Details, memory arithmetic and the pre-registered decision rule: [docs/FINETUNING.md](docs/FINETUNING.md).
 
 An optional external baseline (official GR00T N1.7 LIBERO checkpoint, separate environment, not
 comparable as-is) is described in [docs/EXTERNAL_BASELINES.md](docs/EXTERNAL_BASELINES.md).
@@ -143,9 +191,11 @@ comparable as-is) is described in [docs/EXTERNAL_BASELINES.md](docs/EXTERNAL_BAS
 monet_action/
   README.md  DEVELOPMENT.md  AUDIT.md (G0 report)  SOURCE_VERSIONS.md  RESEARCH_MEMO.md (pre-registered plan)
   Makefile    one target per component test, audits, dashboard, bundle, lint
-  docs/       DASHBOARD.md, UPSTREAM_CODE_REVIEW.md, EXTERNAL_BASELINES.md, PHASE2_EXTENSION_POINTS.md
+  docs/       PROPOSAL.md (research plan + traceability), BIG_PICTURE.md, FINETUNING.md (how much of Monet to train),
+              RUNBOOK.md, DASHBOARD.md, UPSTREAM_CODE_REVIEW.md, EXTERNAL_BASELINES.md, PHASE2_EXTENSION_POINTS.md
   environment/ train/sim/dev requirements, cpu_validation_lock.txt (server_lock.txt written on setup)
   configs/    base + d0_k0 d0_k0_lora d1_k5 d1_k10 d1_k20 d2_lora d4_query d4_query_lora d5_mlp d1_latents_only d1_no_toolresult d1_sft_convention,
+              capacity ladder d2_lora_wide d2_ft4 d2_ft8 (+ matched d0_k0_lora_wide d0_k0_ft4 d0_k0_ft8),
               audit, smoke, eval, eval_smoke, tiny_cpu
   src/monet_action/
     monet_loader.py     loads the authors' modeling file under a private name; tiny random Monet for tests
@@ -174,7 +224,7 @@ monet_action/
     dashboard/          local monitoring web app (stdlib server + vanilla JS)
     bundle.py           debug zip bundles (CLI + dashboard)
   tests/              see the table below; markers slow / sim / tokenizer / gpu
-  scripts/            setup_env, download_data, preflight, profile_memory, dry_run, smoke_overfit, train_all, train_d{0,0_lora,1,2,4,5},
+  scripts/            setup_env, download_data, preflight, profile_memory, dry_run, smoke_overfit, train_all, train_capacity, train_d{0,0_lora,1,2,4,5},
                       evaluate_all, run_phase1, gpu_hold, dashboard, audit_upstream, cpu_validation (all source common.sh)
   env.local.example   machine-local settings (copy to env.local, git-ignored): GPU_ID, MONET_GPU_RESERVE, MONET_GPU_HOLD, HF_HOME
   results/            audit/ (G0 reports), cpu_validation/ (tiny-model evidence)
@@ -199,6 +249,7 @@ parity tests compare against.
 | — | Monet-7B tokenizer, special tokens, prompt layout, injection safety | `test_tokens.py` (`test-tokens`) |
 | — | LIBERO/robosuite: controller, deterministic resets, orientation, demo replay | `test_libero_sim.py` (`test-sim`) |
 | — | logging contract, dashboard, bundles, repository hygiene | `test_logging.py`, `test_dashboard.py`, `test_repo_hygiene.py` |
+| — | capacity ladder: wide LoRA on attention + MLP, full fine-tuning of decoder layers (fp32, bf16 autocast), matched configs, stage-B warm start, report | `test_finetune_capacity.py`, `test_full_finetune_stage_b_from_frozen_stage_a` |
 
 ## Key design decisions (all configurable)
 
